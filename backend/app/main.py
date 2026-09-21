@@ -14,6 +14,7 @@ from .routers.decoration import router as decoration_router
 from .routers.attachment import router as attachment_router
 from .routers.unit import router as unit_router
 from .routers.audit_log import router as audit_log_router
+from .routers.auth import router as auth_router
 
 app = FastAPI(
     title="Personnel Management API",
@@ -35,7 +36,7 @@ app.include_router(decoration_router)
 app.include_router(attachment_router)
 app.include_router(unit_router)
 app.include_router(audit_log_router)
-
+app.include_router(auth_router)
 
 @app.get("/")
 def root():

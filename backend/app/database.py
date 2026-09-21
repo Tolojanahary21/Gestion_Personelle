@@ -52,6 +52,7 @@ def create_tables():
     from .models.attachment import Attachment
     from .models.unit import Unit
     from .models.audit_log import AuditLog
+    from .models.refresh_token import RefreshToken
 
     Base.metadata.create_all(
         bind=engine
