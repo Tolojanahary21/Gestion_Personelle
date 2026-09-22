@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 
+from fastapi.middleware.cors import CORSMiddleware
+
 from .database import create_tables
 from .routers.personnel import router as personnel_router
 from .routers.user import router as user_router
@@ -19,6 +21,13 @@ from .routers.auth import router as auth_router
 app = FastAPI(
     title="Personnel Management API",
     version="1.0.0"
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 create_tables()
