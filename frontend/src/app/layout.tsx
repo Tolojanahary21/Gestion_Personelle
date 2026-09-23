@@ -1,18 +1,12 @@
-import type { Metadata } from "next";
 import QueryProvider from "../../providers/query-provider";
-
-export const metadata: Metadata = {
-  title: "Personnel Management",
-  description: "Personnel Management System",
-};
-
+import "./globals.css";
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en">
+    <html lang="fr">
       <body>
         <QueryProvider>
           {children}
