@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Activity,
   BarChart3,
   CalendarDays,
   GraduationCap,
-  TrendingDown,
   TrendingUp,
   UserCheck,
   UserMinus,
@@ -537,7 +537,7 @@ export default function Statistique() {
                 </h2>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Évolution mensuelle de l'effectif
+                  Évolution mensuelle de l&apos;effectif
                 </p>
               </div>
 

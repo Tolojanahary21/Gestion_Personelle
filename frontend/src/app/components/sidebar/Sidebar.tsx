@@ -12,6 +12,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  Menu,
   Settings,
   Shield,
   Ship,
@@ -19,10 +20,11 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { usePreferences } from "../../providers/PreferencesProvider";
 
 interface SidebarProps {
-  isOpen: boolean;
-  setIsOpen: (value: boolean) => void;
+  isOpen?: boolean;
+  setIsOpen?: (value: boolean) => void;
 }
 
 interface MenuItem {
@@ -40,7 +42,7 @@ const menuSections: MenuSection[] = [
   {
     title: "PRINCIPAL",
     items: [
-      { label: "Tableau de bord", href: "../admin", icon: LayoutDashboard },
+      { label: "Tableau de bord", href: "/admin", icon: LayoutDashboard },
       { label: "Personnel", href: "/personnel", icon: Users },
       { label: "Grades", href: "/grade", icon: Shield },
       { label: "Unités navales", href: "/unites-navales", icon: Ship },
@@ -71,27 +73,41 @@ const menuSections: MenuSection[] = [
 
 export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const pathname = usePathname();
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+  const open = isOpen ?? internalIsOpen;
+  const closeSidebar = setIsOpen ?? setInternalIsOpen;
   const [showLogout, setShowLogout] = useState(false);
+  const { t } = usePreferences();
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(`${href}/`);
 
   return (
     <>
+      {!open && (
+        <button
+          type="button"
+          aria-label="Ouvrir le menu"
+          onClick={() => closeSidebar(true)}
+          className="fixed left-4 top-4 z-40 rounded-xl border border-slate-200 bg-white p-3 text-slate-700 shadow-lg transition hover:bg-slate-50 lg:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      )}
       {/* Overlay mobile */}
-      {isOpen && (
+      {open && (
         <button
           type="button"
           aria-label="Fermer le menu"
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity lg:hidden"
-          onClick={() => setIsOpen(false)}
+          onClick={() => closeSidebar(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
         className={`fixed left-0 top-0 z-50 flex h-screen w-72 flex-col bg-slate-950 text-white shadow-2xl transition-transform duration-300 ease-in-out lg:sticky lg:z-auto lg:translate-x-0 ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
+          open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {/* Header */}
@@ -111,7 +127,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             type="button"
             aria-label="Fermer le menu"
             className="ml-auto rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white lg:hidden"
-            onClick={() => setIsOpen(false)}
+            onClick={() => closeSidebar(false)}
           >
             <X className="h-5 w-5" />
           </button>
@@ -122,7 +138,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           {menuSections.map((section) => (
             <div key={section.title} className="mb-6">
               <p className="mb-2 px-3 text-[10px] font-bold tracking-[0.18em] text-slate-500">
-                {section.title}
+                {t(section.title)}
               </p>
 
               <div className="space-y-1">
@@ -134,7 +150,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     <Link
                       key={item.href}
                       href={item.href}
-                      onClick={() => setIsOpen(false)}
+                      onClick={() => closeSidebar(false)}
                       aria-current={active ? "page" : undefined}
                       className={`group relative flex items-center rounded-xl px-3 py-3 text-sm font-medium transition-all duration-150 ${
                         active
@@ -154,7 +170,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         }`}
                       />
 
-                      <span className="truncate">{item.label}</span>
+                      <span className="truncate">{t(item.label)}</span>
 
                       {active && (
                         <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-white" />
@@ -175,17 +191,13 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             className="flex w-full items-center rounded-xl px-3 py-3 text-sm font-medium text-slate-400 transition hover:bg-red-950/40 hover:text-red-400"
           >
             <LogOut className="mr-3 h-5 w-5" />
-            Déconnexion
+            {t("Déconnexion")}
           </button>
         </div>
       </aside>
       <Deconnexion
         isOpen={showLogout}
         onClose={() => setShowLogout(false)}
-        onConfirm={() => {
-          console.log("Déconnexion confirmée");
-          setShowLogout(false);
-        }}
       />
     </>
   );

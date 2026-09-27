@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Image from 'next/image'
 import type { ReactNode } from 'react'
 import {
   Eye,
@@ -382,7 +383,8 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
      ======================================================= */
 
   useEffect(() => {
-    setUnits(getUnitOptions())
+    const frame = requestAnimationFrame(() => setUnits(getUnitOptions()))
+    return () => cancelAnimationFrame(frame)
   }, [showForm])
 
   /* =======================================================
@@ -878,15 +880,21 @@ function PersonnelAvatar({ person }: { person: Personnel }) {
 
   useEffect(() => {
     if (!isBrowser()) return
-    setPhoto(localStorage.getItem(`sgpnrh_photo_${person.id}`))
+    const frame = requestAnimationFrame(() =>
+      setPhoto(localStorage.getItem(`sgpnrh_photo_${person.id}`)),
+    )
+    return () => cancelAnimationFrame(frame)
   }, [person.id])
 
   if (photo) {
-    // eslint-disable-next-line @next/next/no-img-element
+     
     return (
-      <img
+      <Image
         src={photo}
         alt={getFullName(person)}
+        width={44}
+        height={44}
+        unoptimized
         className="h-11 w-11 shrink-0 rounded-xl object-cover"
       />
     )

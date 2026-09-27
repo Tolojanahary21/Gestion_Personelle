@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Clock,
   Eye,
-  FileText,
   MapPin,
   Pencil,
   Plus,
@@ -17,7 +16,6 @@ import {
   User,
   Users,
   X,
-  XCircle,
 } from 'lucide-react'
 
 /* =========================================================

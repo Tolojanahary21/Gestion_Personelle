@@ -2,12 +2,16 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   login,
   getCurrentUser,
 } from "@/controller/authController";
+import { usePreferences } from "@/app/providers/PreferencesProvider";
 
 export default function LoginForm() {
+  const router = useRouter();
+  const { t } = usePreferences();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -34,12 +38,25 @@ export default function LoginForm() {
         tokens.access_token
       );
 
+      const sessionResponse = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: tokens.access_token }),
+      });
+
+      if (!sessionResponse.ok) {
+        throw new Error("La session n'a pas pu être créée.");
+      }
+
+      localStorage.setItem("access_token", tokens.access_token);
+      localStorage.setItem("refresh_token", tokens.refresh_token);
+
       console.log("Utilisateur connecté :", user);
 
       // 3. Redirection selon le rôle
       switch (user.role.toUpperCase()) {
         case "ADMIN":
-          window.location.href = "/admin";
+          router.replace("/admin");
           break;
 
          //ajouter roles autres
@@ -50,12 +67,16 @@ export default function LoginForm() {
           );
           break;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Erreur de connexion :", err);
+      const responseStatus = (err as { response?: { status?: number } })
+        .response?.status;
 
-      if (err.response?.status === 401) {
+      if (err instanceof Error && err.message === "La session n'a pas pu être créée.") {
+        setError("Impossible de sécuriser la session. Réessayez.");
+      } else if (responseStatus === 401) {
         setError("Nom d'utilisateur ou mot de passe incorrect.");
-      } else if (err.response?.status === 422) {
+      } else if (responseStatus === 422) {
         setError("Les données envoyées sont invalides.");
       } else {
         setError(
@@ -90,11 +111,11 @@ export default function LoginForm() {
             </div>
 
             <h1 className="text-3xl font-bold tracking-tight text-white">
-              Bienvenue
+              {t("Bienvenue")}
             </h1>
 
             <p className="mt-2 text-sm text-slate-400">
-              Connectez-vous à votre espace personnel
+              {t("Connectez-vous à votre espace personnel")}
             </p>
           </div>
 
@@ -116,7 +137,7 @@ export default function LoginForm() {
                 htmlFor="username"
                 className="mb-2 block text-sm font-medium text-slate-200"
               >
-                Nom d'utilisateur / Email
+                {t("Nom d'utilisateur / Email")}
               </label>
 
               <div className="relative">
@@ -132,7 +153,7 @@ export default function LoginForm() {
                   onChange={(e) =>
                     setUsername(e.target.value)
                   }
-                  placeholder="Nom d'utilisateur ou email"
+                  placeholder={t("Nom d'utilisateur ou email")}
                   autoComplete="username"
                   required
                   disabled={isLoading}
@@ -148,14 +169,14 @@ export default function LoginForm() {
                   htmlFor="password"
                   className="block text-sm font-medium text-slate-200"
                 >
-                  Mot de passe
+                  {t("Mot de passe")}
                 </label>
 
                 <button
                   type="button"
                   className="text-xs font-medium text-blue-400 transition hover:text-blue-300"
                 >
-                  Mot de passe oublié ?
+                  {t("Mot de passe oublié ?")}
                 </button>
               </div>
 
@@ -193,7 +214,7 @@ export default function LoginForm() {
                 >
                   {showPassword
                     ? "Masquer"
-                    : "Afficher"}
+                    : t("Afficher")}
                 </button>
               </div>
             </div>
@@ -227,7 +248,7 @@ export default function LoginForm() {
                   Connexion...
                 </>
               ) : (
-                "Se connecter"
+                t("Se connecter")
               )}
             </button>
           </form>

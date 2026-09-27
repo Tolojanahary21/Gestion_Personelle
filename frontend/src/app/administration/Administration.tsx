@@ -8,15 +8,11 @@ import {
   Database,
   Download,
   FileText,
-  Lock,
-  Mail,
   RefreshCw,
   Save,
   Settings,
   Shield,
   Trash2,
-  UserCog,
-  Users,
   X,
 } from "lucide-react";
 
@@ -672,7 +668,7 @@ export default function Administration() {
                       </p>
 
                       <p className="mt-1 text-sm text-slate-500">
-                        Restaurer les paramètres par défaut de l'application.
+                        Restaurer les paramètres par défaut de l&apos;application.
                       </p>
 
                     </div>

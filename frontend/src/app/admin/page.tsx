@@ -15,7 +15,7 @@ export default function AdminPage() {
       />
 
       <main className="flex-1">
-        <DashboardPage />
+        <DashboardPage onMenuClick={() => setIsOpen(true)} />
       </main>
     </div>
   );

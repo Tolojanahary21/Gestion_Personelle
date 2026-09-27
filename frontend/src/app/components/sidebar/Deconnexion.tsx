@@ -17,10 +17,15 @@ export default function Deconnexion({
 
   if (!isOpen) return null;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     // Suppression des informations d'authentification
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+    try {
+      await fetch("/api/auth/session", { method: "DELETE" });
+    } catch (error) {
+      console.error("Impossible de fermer la session côté serveur :", error);
+    }
 
     // Si tu utilises d'autres clés d'authentification,
     // tu peux également les supprimer ici.
@@ -29,7 +34,7 @@ export default function Deconnexion({
     onClose();
 
     // Retour vers la page de connexion
-    router.push("/login");
+    router.replace("/login");
   };
 
   return (

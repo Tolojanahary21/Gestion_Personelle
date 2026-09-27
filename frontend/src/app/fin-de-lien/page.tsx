@@ -1,6 +1,5 @@
 "use client"
 
-import { FunnelChart } from "recharts"
 import Sidebar from "../components/sidebar/Sidebar"
 import FinDeLien from "./FinDeLien"
 

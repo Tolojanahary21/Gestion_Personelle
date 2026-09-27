@@ -1,4 +1,5 @@
 import QueryProvider from "../../providers/query-provider";
+import { PreferencesProvider } from "./providers/PreferencesProvider";
 import "./globals.css";
 export default function RootLayout({
   children,
@@ -8,9 +9,9 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body>
-        <QueryProvider>
-          {children}
-        </QueryProvider>
+        <PreferencesProvider>
+          <QueryProvider>{children}</QueryProvider>
+        </PreferencesProvider>
       </body>
     </html>
   );

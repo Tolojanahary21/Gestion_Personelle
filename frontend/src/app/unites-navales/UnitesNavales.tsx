@@ -740,7 +740,7 @@ function UniteFormModal({
           <div>
             <h2 className="text-xl font-bold text-slate-900">{title}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Informations relatives à l'unité navale.
+              Informations relatives à l&apos;unité navale.
             </p>
           </div>
 
@@ -962,7 +962,7 @@ function DeleteUniteModal({
         </h2>
 
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          Vous êtes sur le point de supprimer l'unité{' '}
+          Vous êtes sur le point de supprimer l&apos;unité{' '}
           <strong className="text-slate-700">{unite.nom}</strong>.
         </p>
 

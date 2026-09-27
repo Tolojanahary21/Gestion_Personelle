@@ -16,13 +16,14 @@ import {
   User,
   Volume2,
 } from "lucide-react";
+import { notifyPreferencesChanged, usePreferences } from "../providers/PreferencesProvider";
 
 /* =========================================================
    TYPES
    ========================================================= */
 
 type Theme = "light" | "dark" | "system";
-type Language = "fr" | "en";
+type Language = "fr" | "en" | "mg";
 type Density = "comfortable" | "compact";
 
 interface UserSettings {
@@ -108,6 +109,7 @@ function saveSettings(settings: UserSettings) {
    ========================================================= */
 
 export default function Parametre() {
+  const preferences = usePreferences();
   const [settings, setSettings] =
     useState<UserSettings>(getSettings);
 
@@ -126,6 +128,9 @@ export default function Parametre() {
       [key]: value,
     }));
 
+    if (key === "theme") preferences.setTheme(value as Theme);
+    if (key === "language") preferences.setLanguage(value as Language);
+
     setSaved(false);
   };
 
@@ -135,6 +140,7 @@ export default function Parametre() {
 
   const handleSave = () => {
     saveSettings(settings);
+    notifyPreferencesChanged();
 
     setSaved(true);
 
@@ -150,6 +156,9 @@ export default function Parametre() {
   const handleReset = () => {
     setSettings(DEFAULT_SETTINGS);
     saveSettings(DEFAULT_SETTINGS);
+    preferences.setTheme(DEFAULT_SETTINGS.theme);
+    preferences.setLanguage(DEFAULT_SETTINGS.language);
+    notifyPreferencesChanged();
 
     setSaved(true);
 
@@ -309,7 +318,7 @@ export default function Parametre() {
             <div>
 
               <label className="mb-3 block text-sm font-medium text-slate-700">
-                Densité d'affichage
+                Densité d&apos;affichage
               </label>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -365,7 +374,7 @@ export default function Parametre() {
           <div className="max-w-md">
 
             <label className="mb-2 block text-sm font-medium text-slate-700">
-              Langue de l'interface
+              Langue de l&apos;interface
             </label>
 
             <select
@@ -386,6 +395,8 @@ export default function Parametre() {
               <option value="en">
                 English
               </option>
+
+              <option value="mg">Malagasy</option>
 
             </select>
 

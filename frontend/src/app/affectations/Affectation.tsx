@@ -822,7 +822,7 @@ function AffectationFormModal({
           <div>
             <h2 className="text-xl font-bold text-slate-900">{title}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Détails de l'affectation du personnel.
+              Détails de l&apos;affectation du personnel.
             </p>
           </div>
 
@@ -1059,7 +1059,7 @@ function DeleteAffectationModal({
         </h2>
 
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          Vous êtes sur le point de supprimer l'affectation de{' '}
+          Vous êtes sur le point de supprimer l&apos;affectation de{' '}
           <strong className="text-slate-700">
             {affectation.personnelNom}
           </strong>{' '}

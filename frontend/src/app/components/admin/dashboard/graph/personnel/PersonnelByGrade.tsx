@@ -75,7 +75,7 @@ export default function PersonnelByGrade() {
             data={data}
             margin={{ top: 5, right: 5, left: -25, bottom: 0 }}
             onMouseMove={(state) => {
-              if (state.isTooltipActive && state.activeTooltipIndex !== undefined) {
+              if (state.isTooltipActive && typeof state.activeTooltipIndex === "number") {
                 setActiveIndex(state.activeTooltipIndex);
               } else {
                 setActiveIndex(null);
