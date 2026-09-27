@@ -3,6 +3,7 @@
 
 import { useRouter } from "next/navigation";
 import { AlertTriangle, LogOut, X } from "lucide-react";
+import api from "../../../../lib/api";
 
 interface DeconnexionProps {
   isOpen: boolean;
@@ -22,7 +23,7 @@ export default function Deconnexion({
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     try {
-      await fetch("/api/auth/session", { method: "DELETE" });
+      await api.post("/auth/logout");
     } catch (error) {
       console.error("Impossible de fermer la session côté serveur :", error);
     }

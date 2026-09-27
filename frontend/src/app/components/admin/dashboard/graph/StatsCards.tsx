@@ -1,136 +1,18 @@
 "use client";
 
-import {
-  Users,
-  UserCheck,
-  Award,
-  Building2,
-  TrendingUp,
-  TrendingDown,
-  type LucideIcon,
-} from "lucide-react";
+import { Award, Building2, UserCheck, Users, type LucideIcon } from "lucide-react";
+import type { DashboardData } from "../page";
+import AnimatedCounter from "../../../../../components/ui/AnimatedCounter";
 
-interface Stat {
-  title: string;
-  value: string;
-  description: string;
-  icon: LucideIcon;
-  trend: string;
-  trendText: string;
-  positive: boolean;
-  accent: string;
-}
-
-const stats: Stat[] = [
-  {
-    title: "Personnel",
-    value: "380",
-    description: "Personnel enregistré",
-    icon: Users,
-    trend: "+8%",
-    trendText: "ce mois",
-    positive: true,
-    accent: "blue",
-  },
-  {
-    title: "Actifs",
-    value: "350",
-    description: "Personnel actuellement actif",
-    icon: UserCheck,
-    trend: "+5%",
-    trendText: "ce mois",
-    positive: true,
-    accent: "emerald",
-  },
-  {
-    title: "Grades",
-    value: "12",
-    description: "Grades enregistrés",
-    icon: Award,
-    trend: "+1",
-    trendText: "ce mois",
-    positive: true,
-    accent: "amber",
-  },
-  {
-    title: "Services",
-    value: "8",
-    description: "Services enregistrés",
-    icon: Building2,
-    trend: "+2",
-    trendText: "ce mois",
-    positive: true,
-    accent: "violet",
-  },
-];
-
-const accentStyles: Record<string, { icon: string; glow: string }> = {
-  blue: { icon: "bg-blue-600/10 text-blue-400", glow: "bg-blue-600/10 group-hover:bg-blue-600/20" },
-  emerald: { icon: "bg-emerald-600/10 text-emerald-400", glow: "bg-emerald-600/10 group-hover:bg-emerald-600/20" },
-  amber: { icon: "bg-amber-600/10 text-amber-400", glow: "bg-amber-600/10 group-hover:bg-amber-600/20" },
-  violet: { icon: "bg-violet-600/10 text-violet-400", glow: "bg-violet-600/10 group-hover:bg-violet-600/20" },
-};
-
-export default function StatsCards() {
-  return (
-    <section className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-2 lg:grid-cols-4">
-      {stats.map((stat) => {
-        const Icon = stat.icon;
-        const TrendIcon = stat.positive ? TrendingUp : TrendingDown;
-        const accent = accentStyles[stat.accent] ?? accentStyles.blue;
-
-        return (
-          <div
-            key={stat.title}
-            className="group relative overflow-hidden rounded-xl border border-white/10 bg-slate-950/90 p-3 shadow-md shadow-black/20 backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:border-blue-500/30 hover:bg-slate-900/90 hover:shadow-lg hover:shadow-black/30"
-          >
-            <div
-              className={`absolute -right-6 -top-6 h-16 w-16 rounded-full blur-xl transition duration-300 ${accent.glow}`}
-            />
-
-            <div className="relative">
-              <div className="flex items-center justify-between">
-                <div
-                  className={`flex h-8 w-8 items-center justify-center rounded-lg transition-transform duration-300 group-hover:scale-105 ${accent.icon}`}
-                >
-                  <Icon size={16} />
-                </div>
-
-                <div
-                  className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 ${
-                    stat.positive
-                      ? "bg-emerald-500/10 text-emerald-400"
-                      : "bg-red-500/10 text-red-400"
-                  }`}
-                  title={`Évolution : ${stat.trend} ${stat.trendText}`}
-                >
-                  <TrendIcon size={11} />
-                  <span className="text-[11px] font-medium">{stat.trend}</span>
-                </div>
-              </div>
-
-              <div className="mt-3">
-                <p className="text-xs font-medium text-slate-400">{stat.title}</p>
-                <p className="mt-0.5 text-2xl font-bold tracking-tight text-white tabular-nums">
-                  {stat.value}
-                </p>
-              </div>
-
-              <div className="mt-2 flex items-center justify-between gap-2 border-t border-white/5 pt-2">
-                <p
-                  className="truncate text-[11px] text-slate-500"
-                  title={stat.description}
-                >
-                  {stat.description}
-                </p>
-                <span className="shrink-0 whitespace-nowrap text-[11px] text-slate-600">
-                  {stat.trendText}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </section>
-  );
+export default function StatsCards({ data }: { data: DashboardData }) {
+  const active = new Set(["active", "actif", "actif(ve)"]);
+  const activeCount = data.military.filter((item) => active.has(item.service_status.toLowerCase())).length;
+  const cards: { title: string; value: number; caption: string; icon: LucideIcon; color: string }[] = [
+    { title: "Personnel", value: data.personnel.length, caption: "Enregistrements backend", icon: Users, color: "blue" },
+    { title: "Actifs", value: activeCount, caption: "Statut de service actif", icon: UserCheck, color: "emerald" },
+    { title: "Grades", value: data.grades.length, caption: "Grades enregistrés", icon: Award, color: "amber" },
+    { title: "Unités", value: data.units.length, caption: "Unités enregistrées", icon: Building2, color: "violet" },
+  ];
+  const colors: Record<string, string> = { blue: "bg-blue-50 text-blue-700", emerald: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", violet: "bg-violet-50 text-violet-700" };
+  return <section className="grid grid-cols-2 gap-3 p-3 lg:grid-cols-4">{cards.map(({ title, value, caption, icon: Icon, color }) => <article key={title} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex items-center justify-between"><span className="text-sm font-medium text-slate-500">{title}</span><span className={`rounded-lg p-2 ${colors[color]}`}><Icon size={18} /></span></div><p className="mt-3 text-2xl font-bold tabular-nums text-slate-900"><AnimatedCounter value={value} /></p><p className="mt-1 text-xs text-slate-500">{caption}</p></article>)}</section>;
 }

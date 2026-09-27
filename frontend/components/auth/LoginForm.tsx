@@ -2,54 +2,39 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   login,
-  getCurrentUser,
 } from "@/controller/authController";
 import { usePreferences } from "@/app/providers/PreferencesProvider";
 
 export default function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { t } = usePreferences();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [registrationSuccess, setRegistrationSuccess] = useState(searchParams.get("registered") === "1");
 
   async function handleSubmit(
     e: React.FormEvent<HTMLFormElement>
   ) {
     e.preventDefault();
 
-    setError("");
     setIsLoading(true);
 
     try {
       // 1. Connexion à FastAPI
-      const tokens = await login({
+      const user = await login({
         username,
         password,
       });
-
-      // 2. Récupération de l'utilisateur connecté
-      const user = await getCurrentUser(
-        tokens.access_token
-      );
-
-      const sessionResponse = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: tokens.access_token }),
-      });
-
-      if (!sessionResponse.ok) {
-        throw new Error("La session n'a pas pu être créée.");
-      }
-
-      localStorage.setItem("access_token", tokens.access_token);
-      localStorage.setItem("refresh_token", tokens.refresh_token);
+      setError("");
+      setRegistrationSuccess(false);
 
       console.log("Utilisateur connecté :", user);
 
@@ -58,9 +43,9 @@ export default function LoginForm() {
         case "ADMIN":
           router.replace("/admin");
           break;
-
-         //ajouter roles autres
-         
+        case "STAFF":
+          router.replace("/mon-espace");
+          break;
         default:
           setError(
             `Rôle non reconnu : ${user.role}`
@@ -71,17 +56,17 @@ export default function LoginForm() {
       console.error("Erreur de connexion :", err);
       const responseStatus = (err as { response?: { status?: number } })
         .response?.status;
+      const apiDetail = (err as { response?: { data?: { detail?: string } } })
+        .response?.data?.detail;
 
-      if (err instanceof Error && err.message === "La session n'a pas pu être créée.") {
-        setError("Impossible de sécuriser la session. Réessayez.");
-      } else if (responseStatus === 401) {
+      if (responseStatus === 401) {
         setError("Nom d'utilisateur ou mot de passe incorrect.");
+      } else if (responseStatus === 403) {
+        setError(apiDetail ?? "Ce compte n'est pas autorisé à accéder à cette application.");
       } else if (responseStatus === 422) {
         setError("Les données envoyées sont invalides.");
       } else {
-        setError(
-          "Impossible de se connecter au serveur."
-        );
+        setError(apiDetail ?? "Impossible de se connecter au serveur.");
       }
     } finally {
       setIsLoading(false);
@@ -121,10 +106,11 @@ export default function LoginForm() {
 
           {/* Error */}
           {error && (
-            <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <div role="alert" aria-live="assertive" className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {error}
             </div>
           )}
+          {registrationSuccess && !error && <div role="status" className="mb-5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">Votre compte personnel est créé. Vous pouvez vous connecter.</div>}
 
           {/* Form */}
           <form
@@ -255,6 +241,10 @@ export default function LoginForm() {
 
           {/* Footer */}
           <div className="mt-8 border-t border-white/10 pt-6 text-center">
+            <p className="mb-4 text-sm text-slate-400">Vous êtes membre du personnel ?</p>
+            <Link href="/register" className="inline-flex w-full items-center justify-center rounded-xl border border-blue-400/40 bg-blue-500/10 px-4 py-3 text-sm font-semibold text-blue-200 transition hover:border-blue-300 hover:bg-blue-500/20">
+              Créer un compte personnel
+            </Link>
             <p className="text-xs text-slate-500">
               Système de gestion des ressources humaines
             </p>

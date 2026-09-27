@@ -1,10 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
+import api from '../../../lib/api'
+import { downloadCsv, normalizeHeader, parseCsv, printReport } from '../../lib/personnelTransfer'
+import AnimatedCounter from '../../components/ui/AnimatedCounter'
 import type { ReactNode } from 'react'
 import {
+  Download,
   Eye,
+  FileSpreadsheet,
+  Printer,
   FileText,
   Pencil,
   Plus,
@@ -29,6 +35,8 @@ export interface Personnel {
   unite: string
   fonction: string
   statut: 'Actif' | 'Congé' | 'Inactif'
+  backendMilitaryInfoId?: string
+  enfantsCount?: number
 }
 
 export interface PersonnelFormData {
@@ -352,13 +360,67 @@ function getUnitOptions(): string[] {
    ========================================================= */
 
 export default function Personnel({ onOpenCareer }: PersonnelProps) {
-  // Lecture directe et synchrone du storage au montage :
-  // le composant est entièrement client, donc pas de risque
-  // de mismatch d'hydratation ici — pas besoin d'attendre un effet.
-  const [personnel, setPersonnel] = useState<Personnel[]>(() =>
-    getPersonnelFromStorage(),
-  )
-  const [units, setUnits] = useState<string[]>(() => getUnitOptions())
+  const [personnel, setPersonnel] = useState<Personnel[]>([])
+  const [units, setUnits] = useState<string[]>([])
+  const [grades, setGrades] = useState<BackendGrade[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [apiError, setApiError] = useState('')
+  const [transferMessage, setTransferMessage] = useState('')
+  const [isImporting, setIsImporting] = useState(false)
+  const importInput = useRef<HTMLInputElement>(null)
+
+  async function loadPersonnel() {
+    setIsLoading(true)
+    try {
+      const [personResponse, militaryResponse, gradeResponse, unitResponse, childrenResponse] = await Promise.all([
+        api.get<BackendPersonnel[]>('/personnel/'),
+        api.get<BackendMilitaryInfo[]>('/military-info/'),
+        api.get<BackendGrade[]>('/grades/'),
+        api.get<BackendUnit[]>('/units'),
+        api.get<BackendChild[]>('/children/'),
+      ])
+      const militaryByPerson = new Map(militaryResponse.data.map((item) => [item.personnel_id, item]))
+      const childrenByPerson = new Map<number, number>()
+      childrenResponse.data.forEach((child) => childrenByPerson.set(child.personnel_id, (childrenByPerson.get(child.personnel_id) ?? 0) + 1))
+      const gradeById = new Map(gradeResponse.data.map((grade) => [grade.id_grade, grade]))
+      setGrades(gradeResponse.data)
+      setUnits(unitResponse.data.map((unit) => unit.name))
+      setPersonnel(personResponse.data.map((person) => {
+        const military = militaryByPerson.get(person.id_personnel)
+        return {
+          id: String(person.id_personnel),
+          matricule: military?.matricule ?? '',
+          nom: person.last_name,
+          prenom: person.first_names,
+          grade: gradeById.get(person.grade_id)?.name ?? '',
+          unite: military?.unit ?? '',
+          fonction: military?.specialty ?? '',
+          statut: military?.service_status === 'Suspended'
+            ? 'Congé'
+            : military?.service_status === 'Retired'
+              ? 'Inactif'
+              : 'Actif',
+          backendMilitaryInfoId: military ? String(military.id_military_info) : undefined,
+          enfantsCount: childrenByPerson.get(person.id_personnel) ?? 0,
+        }
+      }))
+      setApiError('')
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => { void loadPersonnel() })
+    const refreshChildren = () => { void loadPersonnel() }
+    window.addEventListener('sgpnrh-children-updated', refreshChildren)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('sgpnrh-children-updated', refreshChildren)
+    }
+  }, [])
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'Tous' | 'Actif' | 'Congé' | 'Inactif'>('Tous')
@@ -369,23 +431,6 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
   const [selectedPerson, setSelectedPerson] = useState<Personnel | null>(null)
   const [showDelete, setShowDelete] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
-
-  /* =======================================================
-     SAUVEGARDE AUTOMATIQUE
-     ======================================================= */
-
-  useEffect(() => {
-    savePersonnelToStorage(personnel)
-  }, [personnel])
-
-  /* =======================================================
-     ACTUALISER LES UNITÉS À L'OUVERTURE DU FORMULAIRE
-     ======================================================= */
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setUnits(getUnitOptions()))
-    return () => cancelAnimationFrame(frame)
-  }, [showForm])
 
   /* =======================================================
      STATISTIQUES
@@ -502,30 +547,50 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
      SAUVEGARDE FORMULAIRE
      ======================================================= */
 
-  function savePerson() {
+  async function savePerson() {
     if (!form.nom.trim() || !form.prenom.trim() || !form.matricule.trim()) {
+      setApiError('Le nom, le prénom et le matricule sont obligatoires.')
       return
     }
-
-    if (formMode === 'edit') {
-      if (!selectedPerson) return
-
-      setPersonnel((previous) =>
-        previous.map((person) =>
-          person.id === selectedPerson.id ? { ...person, ...form } : person,
-        ),
-      )
-    } else {
-      const newPerson: Personnel = {
-        id: selectedPerson?.id ?? generateId('personnel'),
-        ...form,
-      }
-
-      setPersonnel((previous) => [...previous, newPerson])
-      saveCareerToStorage(createEmptyCareer(newPerson.id))
+    const grade = grades.find((item) => item.name === form.grade)
+    if (!grade) {
+      setApiError('Sélectionnez un grade enregistré avant de continuer.')
+      return
     }
-
-    closeForm()
+    setApiError('')
+    const personPayload = {
+      last_name: form.nom.trim(),
+      first_names: form.prenom.trim(),
+      grade_id: grade.id_grade,
+    }
+    const militaryPayload = {
+      matricule: form.matricule.trim(),
+      unit: form.unite.trim() || null,
+      specialty: form.fonction.trim() || null,
+      service_status: form.statut === 'Actif' ? 'Active' : form.statut === 'Congé' ? 'Suspended' : 'Retired',
+    }
+    let createdPersonnelId: number | undefined
+    try {
+      if (formMode === 'edit' && selectedPerson) {
+        await api.put(`/personnel/${selectedPerson.id}`, personPayload)
+        if (selectedPerson.backendMilitaryInfoId) {
+          await api.put(`/military-info/${selectedPerson.backendMilitaryInfoId}`, militaryPayload)
+        } else {
+          await api.post('/military-info/', { ...militaryPayload, personnel_id: Number(selectedPerson.id) })
+        }
+      } else {
+        const created = await api.post<BackendPersonnel>('/personnel/', personPayload)
+        createdPersonnelId = created.data.id_personnel
+        await api.post('/military-info/', { ...militaryPayload, personnel_id: createdPersonnelId })
+      }
+      await loadPersonnel()
+      closeForm()
+    } catch (error) {
+      if (createdPersonnelId) {
+        try { await api.delete(`/personnel/${createdPersonnelId}`) } catch { /* Signaler l'erreur d'origine. */ }
+      }
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -542,14 +607,18 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
     setSelectedPerson(null)
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!selectedPerson) return
 
     const personnelId = selectedPerson.id
-
-    setPersonnel((previous) =>
-      previous.filter((person) => person.id !== personnelId),
-    )
+    setApiError('')
+    try {
+      await api.delete(`/personnel/${personnelId}`)
+      await loadPersonnel()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+      return
+    }
 
     if (isBrowser()) {
       try {
@@ -566,6 +635,63 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
     }
 
     closeDelete()
+  }
+
+  const exportHeaders = ['Matricule', 'Nom', 'Prénom', 'Grade', 'Unité', 'Fonction', 'Statut']
+  const exportRows = () => personnel.map((person) => [person.matricule, person.nom, person.prenom, person.grade, person.unite, person.fonction, person.statut])
+
+  function exportPersonnel(format: 'excel' | 'pdf') {
+    if (format === 'excel') downloadCsv('personnel.csv', exportHeaders, exportRows())
+    else {
+      try { printReport('Liste du personnel', exportHeaders, exportRows()) }
+      catch (error) { setApiError(error instanceof Error ? error.message : 'Impossible de générer le PDF.') }
+    }
+  }
+
+  async function importPersonnelFile(file?: File) {
+    if (!file) return
+    setTransferMessage('')
+    setApiError('')
+    setIsImporting(true)
+    let createdCount = 0
+    const rowErrors: string[] = []
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error('Le fichier dépasse la limite de 5 Mo.')
+      const entries = parseCsv(await file.text())
+      if (!entries.length) throw new Error('Fichier vide ou format CSV invalide. Dans Excel, enregistrez le classeur au format CSV UTF-8 avant l’import.')
+      if (entries.length > 2000) throw new Error('Limite d’import : 2 000 lignes par fichier.')
+      const knownNumbers = new Set(personnel.map((person) => normalizeHeader(person.matricule)))
+      for (let index = 0; index < entries.length; index += 1) {
+        const source = entries[index]
+        const get = (...aliases: string[]) => aliases.map((alias) => source[normalizeHeader(alias)] ?? '').find((value) => value.trim())?.trim() ?? ''
+        const nom = get('nom', 'last_name')
+        const prenom = get('prenom', 'first_names', 'prénom')
+        const matricule = get('matricule', 'service_number')
+        const gradeName = get('grade', 'rang')
+        const grade = grades.find((item) => normalizeHeader(item.name) === normalizeHeader(gradeName) || normalizeHeader(item.code) === normalizeHeader(gradeName))
+        if (!nom || !prenom || !matricule || !grade) {
+          rowErrors.push(`Ligne ${index + 2} : nom, prénom, matricule et grade existant sont obligatoires.`)
+          continue
+        }
+        if (knownNumbers.has(normalizeHeader(matricule))) { rowErrors.push(`Ligne ${index + 2} : matricule déjà présent (${matricule}).`); continue }
+        let personnelId: number | undefined
+        try {
+          const created = await api.post<BackendPersonnel>('/personnel/', { last_name: nom, first_names: prenom, grade_id: grade.id_grade })
+          personnelId = created.data.id_personnel
+          const statusValue = normalizeHeader(get('statut', 'status'))
+          const serviceStatus = ['inactif', 'retired', 'retraite'].includes(statusValue) ? 'Retired' : ['conge', 'enconge', 'suspended'].includes(statusValue) ? 'Suspended' : 'Active'
+          await api.post('/military-info/', { personnel_id: personnelId, matricule, unit: get('unite', 'unit') || null, specialty: get('fonction', 'specialty') || null, service_status: serviceStatus })
+          createdCount += 1
+          knownNumbers.add(normalizeHeader(matricule))
+        } catch (error) {
+          if (personnelId) { try { await api.delete(`/personnel/${personnelId}`) } catch { /* Préserver l’erreur principale de la ligne. */ } }
+          rowErrors.push(`Ligne ${index + 2} : ${apiErrorMessage(error)}`)
+        }
+      }
+      await loadPersonnel()
+      setTransferMessage(`${createdCount} personnel(s) importé(s).${rowErrors.length ? ` ${rowErrors.length} ligne(s) à corriger. ${rowErrors.slice(0, 3).join(' ')}` : ''}`)
+    } catch (error) { setApiError(error instanceof Error ? error.message : apiErrorMessage(error)) }
+    finally { setIsImporting(false); if (importInput.current) importInput.current.value = '' }
   }
 
   /* =======================================================
@@ -594,15 +720,20 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={openCreate}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-          >
-            <Plus size={18} />
-            Ajouter un personnel
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <input ref={importInput} type="file" accept=".csv,text/csv,.txt,text/plain" className="hidden" onChange={(event) => void importPersonnelFile(event.target.files?.[0])} />
+            <button type="button" onClick={() => importInput.current?.click()} disabled={isImporting || isLoading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><FileSpreadsheet size={17} />{isImporting ? 'Importation…' : 'Importer Excel (CSV)'}</button>
+            <button type="button" onClick={() => downloadCsv('modele-import-personnel.csv', ['matricule', 'nom', 'prenom', 'grade', 'unite', 'fonction', 'statut'], [])} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Download size={17} />Modèle CSV</button>
+            <button type="button" onClick={() => exportPersonnel('excel')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Download size={17} />Excel (CSV)</button>
+            <button type="button" onClick={() => exportPersonnel('pdf')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Printer size={17} />PDF</button>
+            <button type="button" onClick={openCreate} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"><Plus size={18} />Ajouter un personnel</button>
+          </div>
         </div>
+
+        {apiError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{apiError}</div>}
+        {transferMessage && <div role="status" className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{transferMessage}</div>}
+        <p className="mb-4 text-xs text-slate-500">Import : fichier CSV exporté depuis Excel avec les colonnes matricule, nom, prénom, grade, unité, fonction et statut. L’export PDF ouvre la boîte d’impression (choisir « Enregistrer en PDF »).</p>
+        {isLoading && <p className="mb-4 text-sm text-slate-500">Chargement du personnel…</p>}
 
         {/* STATISTIQUES */}
         <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -813,6 +944,7 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
         mode={formMode}
         form={form}
         units={units}
+        grades={grades}
         onClose={closeForm}
         onChange={updateForm}
         onSubmit={savePerson}
@@ -859,7 +991,7 @@ function StatCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900"><AnimatedCounter value={value} /></p>
           <p className="mt-1 text-xs text-slate-500">{description}</p>
         </div>
 
@@ -960,6 +1092,7 @@ function PersonnelFormModal({
   mode,
   form,
   units,
+  grades,
   onClose,
   onChange,
   onSubmit,
@@ -968,6 +1101,7 @@ function PersonnelFormModal({
   mode: 'create' | 'view' | 'edit'
   form: PersonnelFormData
   units: string[]
+  grades: BackendGrade[]
   onClose: () => void
   onChange: (field: keyof PersonnelFormData, value: string) => void
   onSubmit: () => void
@@ -1028,10 +1162,10 @@ function PersonnelFormModal({
               readOnly={readOnly}
               onChange={(value) => onChange('prenom', value)}
             />
-            <Field
+            <SelectField
               label="Grade"
               value={form.grade}
-              placeholder="Grade"
+              options={grades.map((grade) => grade.name)}
               readOnly={readOnly}
               onChange={(value) => onChange('grade', value)}
             />
@@ -1233,7 +1367,7 @@ function PersonnelDetailsModal({
             />
             <DetailItem
               label="Nombre d'enfants"
-              value={String(career.enfants?.length ?? 0)}
+              value={String(person.enfantsCount ?? 0)}
             />
             <DetailItem
               label="Affectations"
@@ -1362,3 +1496,29 @@ function ModalOverlay({
     </div>
   )
 }
+
+interface BackendPersonnel {
+  id_personnel: number
+  grade_id: number
+  last_name: string
+  first_names: string
+}
+interface BackendMilitaryInfo {
+  id_military_info: number
+  personnel_id: number
+  matricule: string
+  service_status: string
+  specialty: string | null
+  unit: string | null
+}
+interface BackendGrade { id_grade: number; name: string; code: string; level: number }
+interface BackendUnit { id_unit: number; name: string }
+interface BackendChild { id_child: number; personnel_id: number }
+
+function apiErrorMessage(error: unknown): string {
+  const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map((item) => item.msg ?? 'Donnée invalide').join(' ')
+  return 'Impossible de communiquer avec le serveur. Vérifiez la connexion puis réessayez.'
+}
+

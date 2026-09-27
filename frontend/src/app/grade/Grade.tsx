@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import AnimatedCounter from '../../components/ui/AnimatedCounter'
 import {
   Award,
   Eye,
@@ -13,6 +14,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+import api from '../../../lib/api'
 
 /* =========================================================
    TYPES
@@ -198,7 +200,27 @@ const categoryColors: Record<GradeCategorie, string> = {
    ========================================================= */
 
 export default function Grade() {
-  const [grades, setGrades] = useState<Grade[]>(() => getGradesFromStorage())
+  const [grades, setGrades] = useState<Grade[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [apiError, setApiError] = useState('')
+
+  async function loadGrades() {
+    setIsLoading(true)
+    try {
+      const response = await api.get<BackendGrade[]>('/grades/')
+      setGrades(response.data.map(fromBackendGrade))
+      setApiError('')
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => { void loadGrades() })
+    return () => cancelAnimationFrame(frame)
+  }, [])
 
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<'Tous' | GradeCategorie>(
@@ -214,11 +236,6 @@ export default function Grade() {
   /* =======================================================
      SAUVEGARDE
      ======================================================= */
-
-  function persist(next: Grade[]) {
-    setGrades(next)
-    saveGradesToStorage(next)
-  }
 
   /* =======================================================
      STATISTIQUES
@@ -334,27 +351,26 @@ export default function Grade() {
      SAUVEGARDE FORMULAIRE
      ======================================================= */
 
-  function saveGrade() {
-    if (!form.libelle.trim() || !form.code.trim()) return
-
-    if (formMode === 'edit') {
-      if (!selectedGrade) return
-
-      persist(
-        grades.map((grade) =>
-          grade.id === selectedGrade.id ? { ...grade, ...form } : grade,
-        ),
-      )
-    } else {
-      const newGrade: Grade = {
-        id: generateId('grade'),
-        ...form,
-      }
-
-      persist([...grades, newGrade])
+  async function saveGrade() {
+    if (!form.libelle.trim() || !form.code.trim()) {
+      setApiError('Le libellé et le code du grade sont obligatoires.')
+      return
     }
-
-    closeForm()
+    setApiError('')
+    const payload = {
+      name: form.libelle.trim(),
+      code: form.code.trim(),
+      description: form.description.trim() || null,
+      level: form.rang > 0 ? form.rang : 1,
+    }
+    try {
+      if (formMode === 'edit' && selectedGrade) await api.put(`/grades/${selectedGrade.id}`, payload)
+      else await api.post('/grades/', payload)
+      await loadGrades()
+      closeForm()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -371,11 +387,16 @@ export default function Grade() {
     setSelectedGrade(null)
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!selectedGrade) return
-
-    persist(grades.filter((grade) => grade.id !== selectedGrade.id))
-    closeDelete()
+    setApiError('')
+    try {
+      await api.delete(`/grades/${selectedGrade.id}`)
+      await loadGrades()
+      closeDelete()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -411,6 +432,13 @@ export default function Grade() {
             Ajouter un grade
           </button>
         </div>
+
+        {apiError && (
+          <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {apiError}
+          </div>
+        )}
+        {isLoading && <p className="mb-4 text-sm text-slate-500">Chargement des grades…</p>}
 
         {/* STATISTIQUES */}
         <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -643,7 +671,7 @@ function StatCard({
         <div className="min-w-0">
           <p className="text-sm font-medium text-slate-500">{title}</p>
           <p className="mt-2 truncate text-3xl font-bold text-slate-900">
-            {value}
+            {typeof value === 'number' ? <AnimatedCounter value={value} /> : value}
           </p>
           <p className="mt-1 truncate text-xs text-slate-500">{description}</p>
         </div>
@@ -984,3 +1012,40 @@ function ModalOverlay({
     </div>
   )
 }
+
+interface BackendGrade {
+  id_grade: number
+  name: string
+  code: string
+  description: string | null
+  level: number
+}
+
+function fromBackendGrade(value: BackendGrade): Grade {
+  const categorie: GradeCategorie = value.level <= 4
+    ? 'Officier supérieur'
+    : value.level <= 6
+      ? 'Officier subalterne'
+      : value.level <= 9
+        ? 'Officier marinier'
+        : value.level <= 11
+          ? 'Quartier-maître'
+          : 'Matelot'
+  return {
+    id: String(value.id_grade),
+    code: value.code,
+    libelle: value.name,
+    abreviation: value.code,
+    categorie,
+    rang: value.level,
+    description: value.description ?? '',
+  }
+}
+
+function apiErrorMessage(error: unknown): string {
+  const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map((item) => item.msg ?? 'Donnée invalide').join(' ')
+  return 'Impossible de communiquer avec le serveur. Vérifiez la connexion puis réessayez.'
+}
+

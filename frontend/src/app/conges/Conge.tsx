@@ -3,6 +3,7 @@
 
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import AnimatedCounter from '../../components/ui/AnimatedCounter'
 import {
   Calendar,
   CheckCircle2,
@@ -977,7 +978,7 @@ function StatCard({
           </p>
 
           <p className="mt-2 text-3xl font-bold text-slate-900">
-            {value}
+            {typeof value === 'number' ? <AnimatedCounter value={value} /> : value}
           </p>
 
           <p className="mt-1 text-xs text-slate-500">

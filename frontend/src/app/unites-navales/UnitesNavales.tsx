@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import AnimatedCounter from '../../components/ui/AnimatedCounter'
 import {
   Anchor,
   Eye,
@@ -14,6 +15,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import api from '../../../lib/api'
 
 /* =========================================================
    TYPES
@@ -48,6 +50,59 @@ export interface UniteFormData {
   effectifTheorique: number
   statut: UniteStatut
   description: string
+}
+
+interface BackendUnit {
+  id_unit: number
+  name: string
+  code: string
+  unit_type: string
+  location: string | null
+  commander_personnel_id: number | null
+  description: string | null
+  active: boolean
+}
+
+interface BackendPerson {
+  id_personnel: number
+  last_name: string
+  first_names: string
+}
+
+function unitTypeToApi(type: UniteType) {
+  if (type === 'Base Navale' || type === 'État-Major') return 'Headquarters'
+  if (type === 'Unité Logistique') return 'Department'
+  if (type === 'Frégate' || type === 'Patrouilleur' || type === 'Vedette') return 'Squadron'
+  return 'Other'
+}
+
+function fromBackendUnit(unit: BackendUnit, people: BackendPerson[]): UniteNavale {
+  const knownType = uniteTypes.find((type) => unit.name.toLocaleLowerCase().includes(type.toLocaleLowerCase()))
+  const type: UniteType = knownType ?? (unit.unit_type === 'Headquarters'
+    ? 'Base Navale'
+    : unit.unit_type === 'Department'
+      ? 'Unité Logistique'
+      : unit.unit_type === 'Squadron'
+        ? 'Patrouilleur'
+        : 'Base Navale')
+  const commander = people.find((person) => person.id_personnel === unit.commander_personnel_id)
+  return {
+    id: String(unit.id_unit),
+    nom: unit.name,
+    type,
+    localisation: unit.location ?? '',
+    commandant: commander ? `${commander.first_names} ${commander.last_name}` : '',
+    effectifTheorique: 0,
+    statut: unit.active ? 'Opérationnelle' : 'Désarmée',
+    description: unit.description ?? '',
+  }
+}
+
+function apiErrorMessage(error: unknown): string {
+  const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map((item) => item.msg ?? 'Donnée invalide').join(' ')
+  return 'Impossible de communiquer avec le serveur. Vérifiez la connexion puis réessayez.'
 }
 
 /* =========================================================
@@ -187,9 +242,32 @@ const statutStyles: Record<UniteStatut, string> = {
    ========================================================= */
 
 export default function UnitesNavales() {
-  const [unites, setUnites] = useState<UniteNavale[]>(() =>
-    getUnitesFromStorage(),
-  )
+  const [unites, setUnites] = useState<UniteNavale[]>([])
+  const [personnel, setPersonnel] = useState<BackendPerson[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [apiError, setApiError] = useState('')
+
+  async function loadUnites() {
+    setIsLoading(true)
+    try {
+      const [unitResponse, peopleResponse] = await Promise.all([
+        api.get<BackendUnit[]>('/units'),
+        api.get<BackendPerson[]>('/personnel/'),
+      ])
+      setPersonnel(peopleResponse.data)
+      setUnites(unitResponse.data.map((unit) => fromBackendUnit(unit, peopleResponse.data)))
+      setApiError('')
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => { void loadUnites() })
+    return () => cancelAnimationFrame(frame)
+  }, [])
 
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<'Tous' | UniteType>('Tous')
@@ -206,11 +284,6 @@ export default function UnitesNavales() {
   /* =======================================================
      SAUVEGARDE
      ======================================================= */
-
-  function persist(next: UniteNavale[]) {
-    setUnites(next)
-    saveUnitesToStorage(next)
-  }
 
   /* =======================================================
      STATISTIQUES
@@ -328,27 +401,34 @@ export default function UnitesNavales() {
      SAUVEGARDE FORMULAIRE
      ======================================================= */
 
-  function saveUnite() {
-    if (!form.nom.trim()) return
-
-    if (formMode === 'edit') {
-      if (!selectedUnite) return
-
-      persist(
-        unites.map((unite) =>
-          unite.id === selectedUnite.id ? { ...unite, ...form } : unite,
-        ),
-      )
-    } else {
-      const newUnite: UniteNavale = {
-        id: generateId('unite'),
-        ...form,
-      }
-
-      persist([...unites, newUnite])
+  async function saveUnite() {
+    if (!form.nom.trim()) {
+      setApiError('Le nom de l’unité est obligatoire.')
+      return
     }
-
-    closeForm()
+    setApiError('')
+    const commander = personnel.find((person) =>
+      `${person.first_names} ${person.last_name}`.toLocaleLowerCase() === form.commandant.trim().toLocaleLowerCase(),
+    )
+    const code = form.nom.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '')
+    const payload = {
+      name: form.nom.trim(),
+      code: code || `UNIT-${Date.now()}`,
+      unit_type: unitTypeToApi(form.type),
+      parent_unit_id: null,
+      location: form.localisation.trim() || null,
+      commander_personnel_id: commander?.id_personnel ?? null,
+      description: form.description.trim() || null,
+      active: form.statut === 'Opérationnelle',
+    }
+    try {
+      if (formMode === 'edit' && selectedUnite) await api.put(`/units/${selectedUnite.id}`, payload)
+      else await api.post('/units', payload)
+      await loadUnites()
+      closeForm()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -365,11 +445,16 @@ export default function UnitesNavales() {
     setSelectedUnite(null)
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!selectedUnite) return
-
-    persist(unites.filter((unite) => unite.id !== selectedUnite.id))
-    closeDelete()
+    setApiError('')
+    try {
+      await api.delete(`/units/${selectedUnite.id}`)
+      await loadUnites()
+      closeDelete()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -405,6 +490,9 @@ export default function UnitesNavales() {
             Ajouter une unité
           </button>
         </div>
+
+        {apiError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{apiError}</div>}
+        {isLoading && <p className="mb-4 text-sm text-slate-500">Chargement des unités…</p>}
 
         {/* STATISTIQUES */}
         <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -627,6 +715,7 @@ export default function UnitesNavales() {
         open={showForm}
         mode={formMode}
         form={form}
+        commanders={personnel.map((person) => `${person.first_names} ${person.last_name}`)}
         onClose={closeForm}
         onChange={updateForm}
         onSubmit={saveUnite}
@@ -664,7 +753,7 @@ function StatCard({
         <div className="min-w-0">
           <p className="text-sm font-medium text-slate-500">{title}</p>
           <p className="mt-2 truncate text-3xl font-bold text-slate-900">
-            {value}
+            {typeof value === 'number' ? <AnimatedCounter value={value} /> : value}
           </p>
           <p className="mt-1 truncate text-xs text-slate-500">{description}</p>
         </div>
@@ -709,6 +798,7 @@ function UniteFormModal({
   open,
   mode,
   form,
+  commanders,
   onClose,
   onChange,
   onSubmit,
@@ -716,6 +806,7 @@ function UniteFormModal({
   open: boolean
   mode: 'create' | 'view' | 'edit'
   form: UniteFormData
+  commanders: string[]
   onClose: () => void
   onChange: (field: keyof UniteFormData, value: string) => void
   onSubmit: () => void
@@ -789,10 +880,10 @@ function UniteFormModal({
               onChange={(value) => onChange('localisation', value)}
             />
 
-            <Field
+            <SelectField
               label="Commandant"
               value={form.commandant}
-              placeholder="Ex. Capitaine RAKOTO"
+              options={commanders}
               readOnly={readOnly}
               onChange={(value) => onChange('commandant', value)}
             />
@@ -1013,3 +1104,4 @@ function ModalOverlay({
     </div>
   )
 }
+

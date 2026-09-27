@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import api from "../../../lib/api";
 import {
   Bell,
   Building2,
@@ -8,11 +9,14 @@ import {
   Database,
   Download,
   FileText,
+  Pencil,
+  Plus,
   RefreshCw,
   Save,
   Settings,
   Shield,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 
@@ -47,7 +51,8 @@ type ActiveSection =
   | "organization"
   | "security"
   | "notifications"
-  | "system";
+  | "system"
+  | "users";
 
 /* =========================================================
    STORAGE
@@ -304,6 +309,13 @@ export default function Administration() {
               onClick={() =>
                 setActiveSection("system")
               }
+            />
+
+            <AdministrationMenuItem
+              icon={<Users className="h-4 w-4" />}
+              label="Utilisateurs"
+              active={activeSection === "users"}
+              onClick={() => setActiveSection("users")}
             />
 
           </aside>
@@ -689,6 +701,8 @@ export default function Administration() {
                 </section>
               </>
             )}
+
+            {activeSection === "users" && <UserManagement />}
 
           </main>
 
@@ -1086,3 +1100,177 @@ function ModalOverlay({
     </div>
   );
 }
+
+interface ManagedUser {
+  id_user: number
+  username: string
+  role: string
+  personnel_id: number | null
+  last_login: string | null
+}
+
+interface UserPersonnel { id_personnel: number; last_name: string; first_names: string }
+type ManagedUserForm = { username: string; password: string; confirmation: string; role: string; personnel_id: string }
+const EMPTY_USER_FORM: ManagedUserForm = { username: '', password: '', confirmation: '', role: 'Staff', personnel_id: '' }
+const USER_ROLES = ['Admin', 'RH', 'Manager', 'Staff']
+
+function errorText(error: unknown) {
+  const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map((item) => item.msg ?? 'Donnée invalide').join(' ')
+  return 'Le serveur est indisponible. Réessayez dans quelques instants.'
+}
+
+function UserManagement() {
+  const [users, setUsers] = useState<ManagedUser[]>([])
+  const [personnel, setPersonnel] = useState<UserPersonnel[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [formOpen, setFormOpen] = useState(false)
+  const [creatingAdmin, setCreatingAdmin] = useState(false)
+  const [editingUser, setEditingUser] = useState<ManagedUser | null>(null)
+  const [form, setForm] = useState<ManagedUserForm>(EMPTY_USER_FORM)
+  const [deletingUser, setDeletingUser] = useState<ManagedUser | null>(null)
+
+  async function loadUsers() {
+    setLoading(true)
+    try {
+      const [userResponse, personnelResponse] = await Promise.all([
+        api.get<ManagedUser[]>('/users/'),
+        api.get<UserPersonnel[]>('/personnel/'),
+      ])
+      setUsers(userResponse.data)
+      setPersonnel(personnelResponse.data)
+      setError('')
+    } catch (cause) {
+      setError(errorText(cause))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => { void loadUsers() })
+    return () => cancelAnimationFrame(frame)
+  }, [])
+
+  function openCreate() {
+    setCreatingAdmin(false)
+    setEditingUser(null)
+    setForm(EMPTY_USER_FORM)
+    setFormOpen(true)
+  }
+
+  function openCreateAdmin() {
+    setEditingUser(null)
+    setForm({ ...EMPTY_USER_FORM, role: 'Admin' })
+    setCreatingAdmin(true)
+    setFormOpen(true)
+  }
+
+  function openEdit(user: ManagedUser) {
+    setEditingUser(user)
+    setForm({ username: user.username, password: '', confirmation: '', role: user.role, personnel_id: user.personnel_id ? String(user.personnel_id) : '' })
+    setFormOpen(true)
+  }
+
+  async function saveUser(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (form.username.trim().length < 3 || (!editingUser && form.password.length < 8) || (creatingAdmin && form.password !== form.confirmation)) {
+      setError(creatingAdmin && form.password !== form.confirmation ? 'Les deux mots de passe ne correspondent pas.' : 'Le nom doit comporter au moins 3 caractères et le mot de passe 8 caractères.')
+      return
+    }
+    setSaving(true)
+    setError('')
+    const payload: Record<string, string | number | null> = {
+      username: form.username.trim(),
+      role: creatingAdmin ? 'Admin' : form.role,
+      personnel_id: creatingAdmin ? null : form.personnel_id ? Number(form.personnel_id) : null,
+    }
+    if (form.password) payload.password = form.password
+    try {
+      if (editingUser) await api.put(`/users/${editingUser.id_user}`, payload)
+      else await api.post('/users/', payload)
+      setFormOpen(false)
+      await loadUsers()
+    } catch (cause) {
+      setError(errorText(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deleteUser() {
+    if (!deletingUser) return
+    setSaving(true)
+    try {
+      await api.delete(`/users/${deletingUser.id_user}`)
+      setDeletingUser(null)
+      await loadUsers()
+    } catch (cause) {
+      setError(errorText(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Comptes utilisateurs</h2>
+          <p className="mt-1 text-sm text-slate-500">Créer et gérer les comptes d’accès du personnel.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <Plus className="h-4 w-4" /> Ajouter un compte
+          </button>
+          <button type="button" onClick={openCreateAdmin} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+            <Shield className="h-4 w-4" /> Ajouter un administrateur
+          </button>
+        </div>
+      </div>
+
+      {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {loading ? <p className="text-sm text-slate-500">Chargement des comptes…</p> : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[650px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-5 py-4">Utilisateur</th><th className="px-5 py-4">Rôle</th><th className="px-5 py-4">Personnel lié</th><th className="px-5 py-4">Dernière connexion</th><th className="px-5 py-4 text-right">Actions</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {users.map((user) => {
+                const person = personnel.find((item) => item.id_personnel === user.personnel_id)
+                return <tr key={user.id_user}>
+                  <td className="px-5 py-4 font-medium text-slate-900">{user.username}</td>
+                  <td className="px-5 py-4">{user.role}</td>
+                  <td className="px-5 py-4">{person ? `${person.last_name} ${person.first_names}` : '—'}</td>
+                  <td className="px-5 py-4">{user.last_login ? new Date(user.last_login).toLocaleString('fr-FR') : 'Jamais'}</td>
+                  <td className="px-5 py-4"><div className="flex justify-end gap-2">
+                    <button type="button" aria-label={`Modifier ${user.username}`} onClick={() => openEdit(user)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><Pencil className="h-4 w-4" /></button>
+                    <button type="button" aria-label={`Supprimer ${user.username}`} onClick={() => setDeletingUser(user)} className="rounded-lg p-2 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
+                  </div></td>
+                </tr>
+              })}
+              {users.length === 0 && <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">Aucun compte utilisateur.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {formOpen && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setFormOpen(false) }}>
+        <form onSubmit={saveUser} className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
+          <div className="flex items-center justify-between"><div><h3 className="text-lg font-semibold text-slate-900">{editingUser ? 'Modifier le compte' : creatingAdmin ? 'Créer un compte administrateur' : 'Créer un compte'}</h3>{creatingAdmin && <p className="mt-1 text-sm text-slate-500">Ce nouveau compte aura les droits administrateur.</p>}</div><button type="button" aria-label="Fermer" onClick={() => setFormOpen(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+          <label className="block text-sm font-medium text-slate-700">Nom d’utilisateur<input required minLength={3} maxLength={100} value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label>
+          <label className="block text-sm font-medium text-slate-700">{editingUser ? 'Nouveau mot de passe (facultatif)' : 'Mot de passe'}<input type="password" required={!editingUser} minLength={8} maxLength={255} autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label>
+          {creatingAdmin && <label className="block text-sm font-medium text-slate-700">Confirmer le mot de passe<input type="password" required minLength={8} maxLength={255} autoComplete="new-password" value={form.confirmation} onChange={(event) => setForm({ ...form, confirmation: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5" /></label>}
+          {!creatingAdmin && <><label className="block text-sm font-medium text-slate-700">Rôle<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5">{USER_ROLES.map((role) => <option key={role}>{role}</option>)}</select></label>
+          <label className="block text-sm font-medium text-slate-700">Personnel associé<select value={form.personnel_id} onChange={(event) => setForm({ ...form, personnel_id: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"><option value="">Aucun</option>{personnel.map((item) => <option key={item.id_personnel} value={item.id_personnel}>{item.last_name} {item.first_names}</option>)}</select></label></>}
+          <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setFormOpen(false)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm">Annuler</button><button disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Enregistrement…' : 'Enregistrer'}</button></div>
+        </form>
+      </div>}
+
+      {deletingUser && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4"><section role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><h3 className="text-lg font-semibold text-slate-900">Supprimer le compte ?</h3><p className="mt-2 text-sm text-slate-600">Le compte « {deletingUser.username} » ne pourra plus se connecter.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setDeletingUser(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm">Annuler</button><button type="button" disabled={saving} onClick={() => void deleteUser()} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">Supprimer</button></div></section></div>}
+    </section>
+  )
+}
+

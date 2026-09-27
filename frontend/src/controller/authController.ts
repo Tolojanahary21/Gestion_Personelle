@@ -5,12 +5,6 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface TokenResponse {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-}
-
 export interface UserResponse {
   id_user: number;
   username: string;
@@ -20,8 +14,8 @@ export interface UserResponse {
 
 export async function login(
   credentials: LoginRequest
-): Promise<TokenResponse> {
-  const response = await api.post<TokenResponse>(
+): Promise<UserResponse> {
+  const response = await api.post<UserResponse>(
     "/auth/login",
     credentials
   );
@@ -29,17 +23,8 @@ export async function login(
   return response.data;
 }
 
-export async function getCurrentUser(
-  accessToken: string
-): Promise<UserResponse> {
-  const response = await api.get<UserResponse>(
-    "/auth/me",
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
-  );
+export async function getCurrentUser(): Promise<UserResponse> {
+  const response = await api.get<UserResponse>("/auth/me");
 
   return response.data;
 }

@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import AnimatedCounter from '../../components/ui/AnimatedCounter'
 import {
   ArrowRight,
   Calendar,
@@ -14,6 +15,7 @@ import {
   User,
   X,
 } from 'lucide-react'
+import api from '../../../lib/api'
 
 /* =========================================================
    TYPES
@@ -48,6 +50,53 @@ interface PersonnelOption {
   nom: string
   prenom: string
   matricule: string
+}
+
+interface BackendPersonnel { id_personnel: number; last_name: string; first_names: string }
+interface BackendUnit { id_unit: number; name: string }
+interface BackendAssignment {
+  id_assignment: number
+  personnel_id: number
+  assignment_type: string
+  position: string
+  location: string | null
+  start_date: string
+  end_date: string | null
+  status: string
+  description: string | null
+}
+
+function fromBackendAssignment(item: BackendAssignment, people: BackendPersonnel[]): Affectation {
+  const person = people.find((candidate) => candidate.id_personnel === item.personnel_id)
+  let motif = ''
+  let observation = ''
+  try {
+    const details = JSON.parse(item.description ?? '') as { motif?: string; observation?: string }
+    motif = details.motif ?? ''
+    observation = details.observation ?? ''
+  } catch {
+    const [legacyMotif = '', ...legacyNotes] = (item.description ?? '').split('\n')
+    motif = legacyMotif
+    observation = legacyNotes.join('\n')
+  }
+  return {
+    id: String(item.id_assignment),
+    personnelId: String(item.personnel_id),
+    personnelNom: person ? `${person.last_name} ${person.first_names}` : `#${item.personnel_id}`,
+    unite: item.location ?? '',
+    fonction: item.position,
+    dateDebut: item.start_date,
+    dateFin: item.end_date ?? '',
+    motif,
+    observation,
+  }
+}
+
+function apiErrorMessage(error: unknown): string {
+  const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map((item) => item.msg ?? 'Donnée invalide').join(' ')
+  return 'Impossible de communiquer avec le serveur. Vérifiez la connexion puis réessayez.'
 }
 
 /* =========================================================
@@ -240,15 +289,37 @@ const statutStyles: Record<AffectationStatut, string> = {
    ========================================================= */
 
 export default function Affectation() {
-  const [affectations, setAffectations] = useState<Affectation[]>(() =>
-    getAffectationsFromStorage(),
-  )
-  const [personnelOptions, setPersonnelOptions] = useState<PersonnelOption[]>(
-    () => getPersonnelOptions(),
-  )
-  const [unitOptions, setUnitOptions] = useState<string[]>(() =>
-    getUnitOptions(),
-  )
+  const [affectations, setAffectations] = useState<Affectation[]>([])
+  const [personnelOptions, setPersonnelOptions] = useState<PersonnelOption[]>([])
+  const [unitOptions, setUnitOptions] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [apiError, setApiError] = useState('')
+
+  async function loadAffectations() {
+    setIsLoading(true)
+    try {
+      const [assignmentResponse, peopleResponse, unitResponse] = await Promise.all([
+        api.get<BackendAssignment[]>('/assignments/'),
+        api.get<BackendPersonnel[]>('/personnel/'),
+        api.get<BackendUnit[]>('/units'),
+      ])
+      setPersonnelOptions(peopleResponse.data.map((person) => ({
+        id: String(person.id_personnel), nom: person.last_name, prenom: person.first_names, matricule: '',
+      })))
+      setUnitOptions(unitResponse.data.map((unit) => unit.name))
+      setAffectations(assignmentResponse.data.map((item) => fromBackendAssignment(item, peopleResponse.data)))
+      setApiError('')
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => { void loadAffectations() })
+    return () => cancelAnimationFrame(frame)
+  }, [])
 
   const [search, setSearch] = useState('')
   const [statutFilter, setStatutFilter] = useState<'Tous' | AffectationStatut>(
@@ -261,20 +332,6 @@ export default function Affectation() {
   const [selectedAffectation, setSelectedAffectation] =
     useState<Affectation | null>(null)
   const [showDelete, setShowDelete] = useState(false)
-
-  /* =======================================================
-     SAUVEGARDE
-     ======================================================= */
-
-  function persist(next: Affectation[]) {
-    setAffectations(next)
-    saveAffectationsToStorage(next)
-  }
-
-  function refreshOptions() {
-    setPersonnelOptions(getPersonnelOptions())
-    setUnitOptions(getUnitOptions())
-  }
 
   /* =======================================================
      STATISTIQUES
@@ -329,7 +386,6 @@ export default function Affectation() {
      ======================================================= */
 
   function openCreate() {
-    refreshOptions()
     setFormMode('create')
     setForm({ ...emptyForm })
     setSelectedAffectation(null)
@@ -341,7 +397,6 @@ export default function Affectation() {
      ======================================================= */
 
   function openView(affectation: Affectation) {
-    refreshOptions()
     setSelectedAffectation(affectation)
     setFormMode('view')
     setForm({
@@ -361,7 +416,6 @@ export default function Affectation() {
      ======================================================= */
 
   function openEdit(affectation: Affectation) {
-    refreshOptions()
     setSelectedAffectation(affectation)
     setFormMode('edit')
     setForm({
@@ -397,38 +451,32 @@ export default function Affectation() {
      SAUVEGARDE FORMULAIRE
      ======================================================= */
 
-  function saveAffectation() {
-    if (!form.personnelId || !form.unite.trim() || !form.dateDebut) return
-
-    const selectedPerson = personnelOptions.find(
-      (p) => p.id === form.personnelId,
-    )
-
-    const personnelNom = selectedPerson
-      ? `${selectedPerson.nom} ${selectedPerson.prenom}`.trim()
-      : selectedAffectation?.personnelNom ?? ''
-
-    if (formMode === 'edit') {
-      if (!selectedAffectation) return
-
-      persist(
-        affectations.map((affectation) =>
-          affectation.id === selectedAffectation.id
-            ? { ...affectation, ...form, personnelNom }
-            : affectation,
-        ),
-      )
-    } else {
-      const newAffectation: Affectation = {
-        id: generateId('affectation'),
-        personnelNom,
-        ...form,
-      }
-
-      persist([...affectations, newAffectation])
+  async function saveAffectation() {
+    if (!form.personnelId || !form.unite.trim() || !form.dateDebut || !form.fonction.trim()) {
+      setApiError('Personnel, unité, fonction et date de début sont obligatoires.')
+      return
     }
-
-    closeForm()
+    setApiError('')
+    const today = new Date().toISOString().slice(0, 10)
+    const assignmentType = /mission/i.test(form.motif) ? 'Mission' : /formation/i.test(form.motif) ? 'Training' : 'Permanent'
+    const payload = {
+      personnel_id: Number(form.personnelId),
+      assignment_type: assignmentType,
+      position: form.fonction.trim(),
+      location: form.unite.trim(),
+      start_date: form.dateDebut,
+      end_date: form.dateFin || null,
+      status: form.dateFin && form.dateFin < today ? 'Completed' : form.dateDebut > today ? 'Planned' : 'Active',
+      description: JSON.stringify({ motif: form.motif.trim(), observation: form.observation.trim() }),
+    }
+    try {
+      if (formMode === 'edit' && selectedAffectation) await api.put(`/assignments/${selectedAffectation.id}`, payload)
+      else await api.post('/assignments/', payload)
+      await loadAffectations()
+      closeForm()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -445,15 +493,16 @@ export default function Affectation() {
     setSelectedAffectation(null)
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!selectedAffectation) return
-
-    persist(
-      affectations.filter(
-        (affectation) => affectation.id !== selectedAffectation.id,
-      ),
-    )
-    closeDelete()
+    setApiError('')
+    try {
+      await api.delete(`/assignments/${selectedAffectation.id}`)
+      await loadAffectations()
+      closeDelete()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -489,6 +538,9 @@ export default function Affectation() {
             Nouvelle affectation
           </button>
         </div>
+
+        {apiError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{apiError}</div>}
+        {isLoading && <p className="mb-4 text-sm text-slate-500">Chargement des affectations…</p>}
 
         {/* STATISTIQUES */}
         <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -743,7 +795,7 @@ function StatCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900"><AnimatedCounter value={value} /></p>
           <p className="mt-1 text-xs text-slate-500">{description}</p>
         </div>
 
@@ -1108,3 +1160,4 @@ function ModalOverlay({
     </div>
   )
 }
+

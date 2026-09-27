@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import AnimatedCounter from '../../components/ui/AnimatedCounter'
 import {
   Calendar,
   Eye,
@@ -14,6 +15,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import api from '../../../lib/api'
 
 /* =========================================================
    TYPES
@@ -33,6 +35,69 @@ export interface Formation {
   participantsIds: string[]
   participantsNoms: string[]
   observation: string
+  backendRows?: BackendTraining[]
+}
+
+interface BackendTraining {
+  id_training: number
+  personnel_id: number
+  name: string
+  training_type: string
+  institution: string | null
+  start_date: string | null
+  end_date: string | null
+  certificate: string | null
+  certificate_number: string | null
+  description: string | null
+}
+
+interface BackendPersonnel { id_personnel: number; last_name: string; first_names: string }
+
+function fromBackendTrainings(rows: BackendTraining[], people: BackendPersonnel[]): Formation[] {
+  const groups = new Map<string, BackendTraining[]>()
+  for (const row of rows) {
+    const key = JSON.stringify([row.name, row.training_type, row.institution, row.start_date, row.end_date, row.certificate, row.certificate_number, row.description])
+    groups.set(key, [...(groups.get(key) ?? []), row])
+  }
+  return [...groups.values()].map((backendRows) => {
+    const row = backendRows[0]
+    let lieu = ''
+    let observation = row.description ?? ''
+    try {
+      const details = JSON.parse(row.description ?? '') as { lieu?: string; observation?: string }
+      lieu = details.lieu ?? ''
+      observation = details.observation ?? ''
+    } catch { /* Existing descriptions remain readable as notes. */ }
+    const type: FormationType = row.training_type === 'Military'
+      ? 'Interne'
+      : row.training_type === 'Technical'
+        ? 'Certifiante'
+        : 'Externe'
+    const participantIds = backendRows.map((item) => String(item.personnel_id))
+    return {
+      id: String(row.id_training),
+      nom: row.name,
+      organisme: row.institution ?? '',
+      type,
+      lieu,
+      dateDebut: row.start_date ?? '',
+      dateFin: row.end_date ?? '',
+      participantsIds: participantIds,
+      participantsNoms: participantIds.map((id) => {
+        const person = people.find((candidate) => String(candidate.id_personnel) === id)
+        return person ? `${person.last_name} ${person.first_names}` : `#${id}`
+      }),
+      observation,
+      backendRows,
+    }
+  })
+}
+
+function apiErrorMessage(error: unknown): string {
+  const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map((item) => item.msg ?? 'Donnée invalide').join(' ')
+  return 'Impossible de communiquer avec le serveur. Vérifiez la connexion puis réessayez.'
 }
 
 export interface FormationFormData {
@@ -223,12 +288,35 @@ const typeStyles: Record<FormationType, string> = {
    ========================================================= */
 
 export default function Formation() {
-  const [formations, setFormations] = useState<Formation[]>(() =>
-    getFormationsFromStorage(),
-  )
-  const [personnelOptions, setPersonnelOptions] = useState<PersonnelOption[]>(
-    () => getPersonnelOptions(),
-  )
+  const [formations, setFormations] = useState<Formation[]>([])
+  const [personnelOptions, setPersonnelOptions] = useState<PersonnelOption[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [apiError, setApiError] = useState('')
+
+  async function loadFormations() {
+    setIsLoading(true)
+    try {
+      const [trainingResponse, peopleResponse] = await Promise.all([
+        api.get<BackendTraining[]>('/trainings/'),
+        api.get<BackendPersonnel[]>('/personnel/'),
+      ])
+      const people = peopleResponse.data
+      setPersonnelOptions(people.map((person) => ({
+        id: String(person.id_personnel), nom: person.last_name, prenom: person.first_names, matricule: '',
+      })))
+      setFormations(fromBackendTrainings(trainingResponse.data, people))
+      setApiError('')
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => { void loadFormations() })
+    return () => cancelAnimationFrame(frame)
+  }, [])
 
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<'Tous' | FormationType>('Tous')
@@ -247,15 +335,6 @@ export default function Formation() {
   /* =======================================================
      SAUVEGARDE
      ======================================================= */
-
-  function persist(next: Formation[]) {
-    setFormations(next)
-    saveFormationsToStorage(next)
-  }
-
-  function refreshOptions() {
-    setPersonnelOptions(getPersonnelOptions())
-  }
 
   /* =======================================================
      STATISTIQUES
@@ -318,7 +397,6 @@ export default function Formation() {
      ======================================================= */
 
   function openCreate() {
-    refreshOptions()
     setFormMode('create')
     setForm({ ...emptyForm })
     setSelectedFormation(null)
@@ -330,7 +408,6 @@ export default function Formation() {
      ======================================================= */
 
   function openView(formation: Formation) {
-    refreshOptions()
     setSelectedFormation(formation)
     setFormMode('view')
     setForm({
@@ -351,7 +428,6 @@ export default function Formation() {
      ======================================================= */
 
   function openEdit(formation: Formation) {
-    refreshOptions()
     setSelectedFormation(formation)
     setFormMode('edit')
     setForm({
@@ -404,35 +480,43 @@ export default function Formation() {
      SAUVEGARDE FORMULAIRE
      ======================================================= */
 
-  function saveFormation() {
-    if (!form.nom.trim() || !form.dateDebut) return
-
-    const participantsNoms = form.participantsIds.map((id) => {
-      const person = personnelOptions.find((p) => p.id === id)
-      return person ? `${person.nom} ${person.prenom}`.trim() : ''
-    }).filter(Boolean)
-
-    if (formMode === 'edit') {
-      if (!selectedFormation) return
-
-      persist(
-        formations.map((formation) =>
-          formation.id === selectedFormation.id
-            ? { ...formation, ...form, participantsNoms }
-            : formation,
-        ),
-      )
-    } else {
-      const newFormation: Formation = {
-        id: generateId('formation'),
-        participantsNoms,
-        ...form,
-      }
-
-      persist([...formations, newFormation])
+  async function saveFormation() {
+    if (!form.nom.trim() || !form.participantsIds.length) {
+      setApiError('Le nom et au moins un participant sont obligatoires.')
+      return
     }
-
-    closeForm()
+    setApiError('')
+    const payloadBase = {
+      name: form.nom.trim(),
+      training_type: form.type === 'Interne' ? 'Military' : form.type === 'Certifiante' ? 'Technical' : 'Other',
+      institution: form.organisme.trim() || null,
+      start_date: form.dateDebut || null,
+      end_date: form.dateFin || null,
+      certificate: null,
+      certificate_number: null,
+      description: JSON.stringify({ lieu: form.lieu.trim(), observation: form.observation.trim() }),
+    }
+    try {
+      const existingRows = selectedFormation?.backendRows ?? []
+      const existingByPerson = new Map(existingRows.map((row) => [String(row.personnel_id), row]))
+      for (const personnelId of form.participantsIds) {
+        const existing = existingByPerson.get(personnelId)
+        const payload = { ...payloadBase, personnel_id: Number(personnelId) }
+        if (formMode === 'edit' && existing) {
+          await api.put(`/trainings/${existing.id_training}`, payload)
+          existingByPerson.delete(personnelId)
+        } else {
+          await api.post('/trainings/', payload)
+        }
+      }
+      for (const removed of existingByPerson.values()) {
+        await api.delete(`/trainings/${removed.id_training}`)
+      }
+      await loadFormations()
+      closeForm()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -449,13 +533,18 @@ export default function Formation() {
     setSelectedFormation(null)
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!selectedFormation) return
-
-    persist(
-      formations.filter((formation) => formation.id !== selectedFormation.id),
-    )
-    closeDelete()
+    setApiError('')
+    try {
+      for (const row of selectedFormation.backendRows ?? []) {
+        await api.delete(`/trainings/${row.id_training}`)
+      }
+      await loadFormations()
+      closeDelete()
+    } catch (error) {
+      setApiError(apiErrorMessage(error))
+    }
   }
 
   /* =======================================================
@@ -489,6 +578,9 @@ export default function Formation() {
             Nouvelle formation
           </button>
         </div>
+
+        {apiError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{apiError}</div>}
+        {isLoading && <p className="mb-4 text-sm text-slate-500">Chargement des formations…</p>}
 
         {/* STATISTIQUES */}
         <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -765,7 +857,7 @@ function StatCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900"><AnimatedCounter value={value} /></p>
           <p className="mt-1 text-xs text-slate-500">{description}</p>
         </div>
 
@@ -1164,3 +1256,4 @@ function ModalOverlay({
     </div>
   )
 }
+

@@ -9,6 +9,7 @@ import {
   CalendarDays,
   ClipboardList,
   FileText,
+  FolderOpen,
   GraduationCap,
   LayoutDashboard,
   LogOut,
@@ -44,6 +45,7 @@ const menuSections: MenuSection[] = [
     items: [
       { label: "Tableau de bord", href: "/admin", icon: LayoutDashboard },
       { label: "Personnel", href: "/personnel", icon: Users },
+      { label: "Dossiers", href: "/dossiers", icon: FolderOpen },
       { label: "Grades", href: "/grade", icon: Shield },
       { label: "Unités navales", href: "/unites-navales", icon: Ship },
     ],
