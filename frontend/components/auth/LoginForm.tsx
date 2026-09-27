@@ -42,18 +42,8 @@ export default function LoginForm() {
           window.location.href = "/admin";
           break;
 
-        case "HR":
-          window.location.href = "/hr";
-          break;
-
-        case "MANAGER":
-          window.location.href = "/manager";
-          break;
-
-        case "STAFF":
-          window.location.href = "/staff";
-          break;
-
+         //ajouter roles autres
+         
         default:
           setError(
             `Rôle non reconnu : ${user.role}`
