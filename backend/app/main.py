@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import create_tables
+from .bootstrap_admin import bootstrap_admin_from_environment
 from .routers.personnel import router as personnel_router
 from .routers.user import router as user_router
 from .routers.child import router as child_router
@@ -31,6 +32,7 @@ app.add_middleware(
 )
 
 create_tables()
+bootstrap_admin_from_environment()
 
 app.include_router(personnel_router)
 app.include_router(user_router)
@@ -52,3 +54,4 @@ def root():
     return {
         "message": "Personnel Management API is running"
     }
+

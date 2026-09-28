@@ -2,75 +2,71 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   login,
-  getCurrentUser,
 } from "@/controller/authController";
+import { usePreferences } from "@/app/providers/PreferencesProvider";
 
 export default function LoginForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { t } = usePreferences();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [registrationSuccess, setRegistrationSuccess] = useState(searchParams.get("registered") === "1");
 
   async function handleSubmit(
     e: React.FormEvent<HTMLFormElement>
   ) {
     e.preventDefault();
 
-    setError("");
     setIsLoading(true);
 
     try {
       // 1. Connexion à FastAPI
-      const tokens = await login({
+      const user = await login({
         username,
         password,
       });
-
-      // 2. Récupération de l'utilisateur connecté
-      const user = await getCurrentUser(
-        tokens.access_token
-      );
+      setError("");
+      setRegistrationSuccess(false);
 
       console.log("Utilisateur connecté :", user);
 
       // 3. Redirection selon le rôle
       switch (user.role.toUpperCase()) {
         case "ADMIN":
-          window.location.href = "/admin";
+          router.replace("/admin");
           break;
-
-        case "HR":
-          window.location.href = "/hr";
-          break;
-
-        case "MANAGER":
-          window.location.href = "/manager";
-          break;
-
         case "STAFF":
-          window.location.href = "/staff";
+          router.replace("/mon-espace");
           break;
-
         default:
           setError(
             `Rôle non reconnu : ${user.role}`
           );
           break;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Erreur de connexion :", err);
+      const responseStatus = (err as { response?: { status?: number } })
+        .response?.status;
+      const apiDetail = (err as { response?: { data?: { detail?: string } } })
+        .response?.data?.detail;
 
-      if (err.response?.status === 401) {
+      if (responseStatus === 401) {
         setError("Nom d'utilisateur ou mot de passe incorrect.");
-      } else if (err.response?.status === 422) {
+      } else if (responseStatus === 403) {
+        setError(apiDetail ?? "Ce compte n'est pas autorisé à accéder à cette application.");
+      } else if (responseStatus === 422) {
         setError("Les données envoyées sont invalides.");
       } else {
-        setError(
-          "Impossible de se connecter au serveur."
-        );
+        setError(apiDetail ?? "Impossible de se connecter au serveur.");
       }
     } finally {
       setIsLoading(false);
@@ -100,20 +96,21 @@ export default function LoginForm() {
             </div>
 
             <h1 className="text-3xl font-bold tracking-tight text-white">
-              Bienvenue
+              {t("Bienvenue")}
             </h1>
 
             <p className="mt-2 text-sm text-slate-400">
-              Connectez-vous à votre espace personnel
+              {t("Connectez-vous à votre espace personnel")}
             </p>
           </div>
 
           {/* Error */}
           {error && (
-            <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <div role="alert" aria-live="assertive" className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {error}
             </div>
           )}
+          {registrationSuccess && !error && <div role="status" className="mb-5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">Votre compte personnel est créé. Vous pouvez vous connecter.</div>}
 
           {/* Form */}
           <form
@@ -126,7 +123,7 @@ export default function LoginForm() {
                 htmlFor="username"
                 className="mb-2 block text-sm font-medium text-slate-200"
               >
-                Nom d'utilisateur / Email
+                {t("Nom d'utilisateur / Email")}
               </label>
 
               <div className="relative">
@@ -142,7 +139,7 @@ export default function LoginForm() {
                   onChange={(e) =>
                     setUsername(e.target.value)
                   }
-                  placeholder="Nom d'utilisateur ou email"
+                  placeholder={t("Nom d'utilisateur ou email")}
                   autoComplete="username"
                   required
                   disabled={isLoading}
@@ -158,14 +155,14 @@ export default function LoginForm() {
                   htmlFor="password"
                   className="block text-sm font-medium text-slate-200"
                 >
-                  Mot de passe
+                  {t("Mot de passe")}
                 </label>
 
                 <button
                   type="button"
                   className="text-xs font-medium text-blue-400 transition hover:text-blue-300"
                 >
-                  Mot de passe oublié ?
+                  {t("Mot de passe oublié ?")}
                 </button>
               </div>
 
@@ -203,7 +200,7 @@ export default function LoginForm() {
                 >
                   {showPassword
                     ? "Masquer"
-                    : "Afficher"}
+                    : t("Afficher")}
                 </button>
               </div>
             </div>
@@ -237,13 +234,17 @@ export default function LoginForm() {
                   Connexion...
                 </>
               ) : (
-                "Se connecter"
+                t("Se connecter")
               )}
             </button>
           </form>
 
           {/* Footer */}
           <div className="mt-8 border-t border-white/10 pt-6 text-center">
+            <p className="mb-4 text-sm text-slate-400">Vous êtes membre du personnel ?</p>
+            <Link href="/register" className="inline-flex w-full items-center justify-center rounded-xl border border-blue-400/40 bg-blue-500/10 px-4 py-3 text-sm font-semibold text-blue-200 transition hover:border-blue-300 hover:bg-blue-500/20">
+              Créer un compte personnel
+            </Link>
             <p className="text-xs text-slate-500">
               Système de gestion des ressources humaines
             </p>

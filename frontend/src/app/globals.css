@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+body { min-height: 100vh; background: #f8fafc; transition: background-color 220ms ease, color 220ms ease; }
+html.dark body { background: #0b1120; color: #e2e8f0; }
+html.dark [class~="bg-white"], html.dark [class~="bg-slate-50"] { background-color: #111827 !important; }
+html.dark [class~="bg-slate-100"] { background-color: #1e293b !important; }
+html.dark [class~="text-slate-900"], html.dark [class~="text-slate-800"], html.dark [class~="text-slate-700"] { color: #e2e8f0 !important; }
+html.dark [class~="text-slate-600"], html.dark [class~="text-slate-500"], html.dark [class~="text-slate-400"] { color: #94a3b8 !important; }
+html.dark [class~="border-slate-200"], html.dark [class~="border-slate-100"] { border-color: #334155 !important; }
+html.dark input:not([type="checkbox"]), html.dark select, html.dark textarea { background-color: #0f172a; color: #e2e8f0; border-color: #475569; }
+html.dark input::placeholder, html.dark textarea::placeholder { color: #64748b; }
+@keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes modal-enter { from { opacity: 0; transform: scale(.98) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+main > div { animation: page-enter 320ms ease-out both; }
+[class*="fixed"][class*="inset-0"] > div { animation: modal-enter 180ms ease-out both; }
+button, a, [role="button"] { transition-duration: 180ms; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
