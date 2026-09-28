@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Activity, Download, FileSpreadsheet, Printer, RefreshCw, Users } from "lucide-react";
+import { Activity, Download, Printer, RefreshCw, Users } from "lucide-react";
 import api from "../../../lib/api";
 import { downloadCsv, printReport } from "../../lib/personnelTransfer";
 import AnimatedCounter from "../../components/ui/AnimatedCounter";
@@ -31,6 +31,7 @@ export default function Statistique() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [loadedResources, setLoadedResources] = useState<Set<string>>(() => new Set());
 
   const refresh = useCallback(async () => {
     const results = await Promise.allSettled(requests.map(([, path]) => api.get(path)));
@@ -42,6 +43,13 @@ export default function Statistique() {
         if (result.status === "fulfilled" && Array.isArray(result.value.data)) Object.assign(merged, { [key]: result.value.data });
       });
       return merged;
+    });
+    setLoadedResources((previous) => {
+      const next = new Set(previous);
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled" && Array.isArray(result.value.data)) next.add(requests[index][0]);
+      });
+      return next;
     });
     setUpdatedAt((previous) => failed.length < requests.length ? new Date() : previous);
     setError(failed.length ? `Données indisponibles pour : ${failed.join(", ")}. Les dernières valeurs chargées sont conservées.` : "");
@@ -97,21 +105,28 @@ export default function Statistique() {
     { label: "Langues", value: data.languages.length, hint: "Compétences linguistiques" },
     { label: "Compétences informatiques", value: data.computerSkills.length, hint: "Compétences déclarées" },
     { label: "Pièces jointes", value: data.attachments.length, hint: "Métadonnées enregistrées" },
-    { label: "Congés", value: 0, hint: "Aucune route backend" },
-    { label: "Fins de lien", value: 0, hint: "Aucune route backend" },
+    { label: "Congés", value: "—", hint: "Données indisponibles · aucune API" },
+    { label: "Fins de lien", value: "—", hint: "Données indisponibles · aucune API" },
   ];
+  const resourcesByCard: Record<string, string[]> = {
+    "Effectif total": ["personnel"], "Personnel actif": ["military", "personnel"],
+    "Affectations": ["assignments"], "Formations": ["trainings"], "Enfants": ["children"],
+    "Décorations": ["decorations"], "Langues": ["languages"],
+    "Compétences informatiques": ["computerSkills"], "Pièces jointes": ["attachments"],
+    "Congés": [], "Fins de lien": [],
+  };
 
   return <div className="min-h-screen bg-slate-50 p-4 md:p-6 lg:p-8"><div className="mx-auto max-w-7xl space-y-6">
-    <header className="flex flex-wrap items-end justify-between gap-4"><div><div className="mb-2 flex items-center gap-2 text-sm font-medium text-blue-700"><Activity size={18} />Statistiques RH</div><h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Données réelles du personnel</h1><p className="mt-1 text-sm text-slate-500">Calculées depuis l’API et actualisées automatiquement toutes les 30 secondes.</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={loading} onClick={() => void refresh()} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"><RefreshCw size={16} className={loading ? "animate-spin" : ""} />Actualiser</button><button type="button" onClick={() => exportReport("excel")} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><Download size={16} />Exporter Excel</button><button type="button" onClick={() => exportReport("pdf")} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"><Printer size={16} />Exporter PDF</button></div></header>
+    <header className="flex flex-wrap items-end justify-between gap-4"><div><div className="mb-2 flex items-center gap-2 text-sm font-medium text-blue-700"><Activity size={18} />Statistiques RH</div><h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Données réelles du personnel</h1><p className="mt-1 text-sm text-slate-500">Calculées depuis l’API et actualisées automatiquement toutes les 30 secondes.</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={loading} onClick={() => void refresh()} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"><RefreshCw size={16} className={loading ? "animate-spin" : ""} />Actualiser</button><button type="button" disabled={loading || requests.some(([key]) => !loadedResources.has(key))} onClick={() => exportReport("excel")} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Download size={16} />Exporter Excel</button><button type="button" disabled={loading || requests.some(([key]) => !loadedResources.has(key))} onClick={() => exportReport("pdf")} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50"><Printer size={16} />Exporter PDF</button></div></header>
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>{loading ? "Chargement…" : error || "Toutes les données disponibles sont à jour."}</span><span>{updatedAt ? `Dernière mise à jour : ${updatedAt.toLocaleTimeString("fr-FR")}` : ""}</span></div>
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map((card) => <article key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><p className="text-sm text-slate-500">{card.label}</p><Users size={17} className="text-blue-600" /></div><p className="mt-2 text-3xl font-bold tabular-nums text-slate-900"><AnimatedCounter value={card.value} /></p><p className="mt-1 text-xs text-slate-500">{card.hint}</p></article>)}</section>
-    <div className="grid gap-5 lg:grid-cols-2"><DataList title="Personnel par grade" rows={gradeRows} /><DataList title="Personnel par unité" rows={unitRows} /></div>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map((card) => { const resources = resourcesByCard[card.label]; const available = resources.length === 0 || resources.every((key) => loadedResources.has(key)); const value = available ? card.value : "—"; return <article key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><p className="text-sm text-slate-500">{card.label}</p><Users size={17} className="text-blue-600" /></div><p className="mt-2 text-3xl font-bold tabular-nums text-slate-900">{typeof value === "number" ? <AnimatedCounter value={value} /> : value}</p><p className="mt-1 text-xs text-slate-500">{available ? card.hint : "Données indisponibles"}</p></article>; })}</section>
+    <div className="grid gap-5 lg:grid-cols-2"><DataList title="Personnel par grade" rows={gradeRows} available={loadedResources.has("grades") && loadedResources.has("personnel")} /><DataList title="Personnel par unité" rows={unitRows} available={loadedResources.has("units") && loadedResources.has("military")} /></div>
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Recrutements récents</h2><p className="mt-1 text-xs text-slate-500">Comptage par mois depuis les dates de recrutement existantes.</p><div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">{latestRecruitments.map((item) => <div key={item.month} className="rounded-lg bg-slate-50 p-3"><p className="text-xs capitalize text-slate-500">{item.month}</p><p className="mt-2 text-xl font-bold text-slate-900">{item.count}</p></div>)}</div></section>
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4"><div><p className="font-medium text-blue-950">Import et export des fiches personnel</p><p className="mt-1 text-sm text-blue-800">L’import CSV Excel et les exports par format sont dans la gestion du personnel.</p></div><Link href="/personnel" className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"><FileSpreadsheet size={16} />Ouvrir le personnel</Link></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4"><div><p className="font-medium text-blue-950">Gestion PDF des fiches personnel</p><p className="mt-1 text-sm text-blue-800">Les exports PDF et les outils d’import des fiches sont dans la gestion du personnel.</p></div><Link href="/personnel" className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"><Printer size={16} />Ouvrir le personnel</Link></div>
   </div></div>;
 }
 
-function DataList({ title, rows }: { title: string; rows: { label: string; count: number }[] }) {
+function DataList({ title, rows, available }: { title: string; rows: { label: string; count: number }[]; available: boolean }) {
   const maximum = Math.max(1, ...rows.map((item) => item.count));
-  return <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">{title}</h2>{rows.length ? <ul className="mt-4 space-y-3">{rows.map((item) => <li key={item.label}><div className="mb-1 flex justify-between gap-3 text-sm"><span className="truncate text-slate-600">{item.label}</span><strong className="text-slate-900">{item.count}</strong></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${(item.count / maximum) * 100}%` }} /></div></li>)}</ul> : <p className="mt-5 text-sm text-slate-500">Aucune donnée · 0</p>}</section>;
+  return <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">{title}</h2>{rows.length ? <ul className="mt-4 space-y-3">{rows.map((item) => <li key={item.label}><div className="mb-1 flex justify-between gap-3 text-sm"><span className="truncate text-slate-600">{item.label}</span><strong className="text-slate-900">{item.count}</strong></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${(item.count / maximum) * 100}%` }} /></div></li>)}</ul> : <p className="mt-5 text-sm text-slate-500">{available ? "Aucune donnée" : "Données indisponibles"}</p>}</section>;
 }

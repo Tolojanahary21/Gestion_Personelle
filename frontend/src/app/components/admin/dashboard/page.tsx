@@ -28,8 +28,11 @@ export default function DashboardPage({ onMenuClick }: { onMenuClick: () => void
   const [data, setData] = useState<DashboardData>(emptyData);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [activitiesError, setActivitiesError] = useState("");
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
 
   const refresh = useCallback(async () => {
+    setActivitiesLoading(true);
     const [people, military, grades, units, activities] = await Promise.allSettled([
       api.get<DashboardPersonnel[]>("/personnel/"),
       api.get<DashboardMilitaryInfo[]>("/military-info/"),
@@ -38,6 +41,10 @@ export default function DashboardPage({ onMenuClick }: { onMenuClick: () => void
       api.get<DashboardAuditLog[]>("/audit-logs/"),
     ]);
     const failures = [people, military, grades, units, activities].filter((result) => result.status === "rejected").length;
+    if (activities.status === "rejected") {
+      const detail = (activities.reason as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setActivitiesError(detail ?? "Le journal d’activités est indisponible. Vérifiez l’API /audit-logs/ et les droits administrateur.");
+    } else setActivitiesError("");
     setData((previous) => ({
       personnel: people.status === "fulfilled" && Array.isArray(people.value.data) ? people.value.data : previous.updatedAt ? previous.personnel : [],
       military: military.status === "fulfilled" && Array.isArray(military.value.data) ? military.value.data : previous.updatedAt ? previous.military : [],
@@ -48,6 +55,7 @@ export default function DashboardPage({ onMenuClick }: { onMenuClick: () => void
     }));
     setError(failures === 5 ? "Impossible de charger les données du tableau de bord. Vérifiez la connexion au serveur." : failures > 0 ? "Certaines données sont indisponibles; les sections concernées sont conservées à leur dernière valeur connue ou affichées à 0." : "");
     setLoading(false);
+    setActivitiesLoading(false);
   }, []);
 
   useEffect(() => {
@@ -67,7 +75,7 @@ export default function DashboardPage({ onMenuClick }: { onMenuClick: () => void
         <StatsCards data={data} />
         <Personnel data={data} />
         <Effectifs data={data} />
-        <LastActivities activities={data.activities} />
+        <LastActivities activities={data.activities} error={activitiesError} loading={activitiesLoading} onRefresh={() => void refresh()} />
       </div>
     </div>
   );

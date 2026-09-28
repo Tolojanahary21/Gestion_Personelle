@@ -1,9 +1,11 @@
  
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import api from '../../../lib/api'
 import {
+  AlertCircle,
   Calendar,
   CheckCircle2,
   Eye,
@@ -74,83 +76,8 @@ interface PersonnelOption {
    ========================================================= */
 
 const FIN_DE_LIEN_STORAGE_KEY = 'sgpnrh_fin_de_lien'
-const PERSONNEL_STORAGE_KEY = 'sgpnrh_personnel'
 
 const isBrowser = () => typeof window !== 'undefined'
-
-/* =========================================================
-   DONNÉES DE DÉMONSTRATION
-   ========================================================= */
-
-const defaultFinDeLiens: FinDeLien[] = [
-  {
-    id: 'fin-lien-001',
-    personnelId: 'personnel-001',
-    personnelNom: 'RAKOTO Jean',
-    matricule: 'PN-2026-001',
-    type: 'Retraite',
-    dateFin: '2026-12-31',
-    dateNotification: '2026-07-15',
-    motif: 'Départ à la retraite',
-    lieu: '',
-    statut: 'En préparation',
-    observation: 'Dossier de départ en cours de préparation.',
-  },
-  {
-    id: 'fin-lien-002',
-    personnelId: 'personnel-002',
-    personnelNom: 'RABE Michel',
-    matricule: 'PN-2026-002',
-    type: 'Mutation',
-    dateFin: '2026-10-15',
-    dateNotification: '2026-08-20',
-    motif: 'Mutation vers une autre unité',
-    lieu: 'Toamasina',
-    statut: 'Validée',
-    observation: '',
-  },
-  {
-    id: 'fin-lien-003',
-    personnelId: 'personnel-004',
-    personnelNom: 'RASOANAIVO Louis',
-    matricule: 'PN-2026-004',
-    type: 'Fin de contrat',
-    dateFin: '2026-06-30',
-    dateNotification: '2026-05-10',
-    motif: 'Fin du contrat de travail',
-    lieu: '',
-    statut: 'Terminée',
-    observation: 'Documents administratifs remis.',
-  },
-  {
-    id: 'fin-lien-004',
-    personnelId: 'personnel-005',
-    personnelNom: 'RAKOTOMALALA Andry',
-    matricule: 'PN-2026-005',
-    type: 'Démission',
-    dateFin: '2026-11-30',
-    dateNotification: '2026-09-10',
-    motif: 'Démission volontaire',
-    lieu: 'Fianarantsoa',
-    statut: 'En préparation',
-    observation: '',
-  },
-]
-
-const fallbackPersonnelOptions: PersonnelOption[] = [
-  {
-    id: 'personnel-001',
-    nom: 'RAKOTO',
-    prenom: 'Jean',
-    matricule: 'PN-2026-001',
-  },
-  {
-    id: 'personnel-002',
-    nom: 'RABE',
-    prenom: 'Michel',
-    matricule: 'PN-2026-002',
-  },
-]
 
 const finDeLienTypes: FinDeLienType[] = [
   'Démission',
@@ -189,20 +116,20 @@ const emptyForm: FinDeLienFormData = {
    ========================================================= */
 
 export function getFinDeLiensFromStorage(): FinDeLien[] {
-  if (!isBrowser()) return defaultFinDeLiens
+  if (!isBrowser()) return []
 
   try {
     const raw = localStorage.getItem(FIN_DE_LIEN_STORAGE_KEY)
 
-    if (!raw) return defaultFinDeLiens
+    if (!raw) return []
 
     const parsed = JSON.parse(raw)
 
-    if (!Array.isArray(parsed)) return defaultFinDeLiens
+    if (!Array.isArray(parsed)) return []
 
     return parsed as FinDeLien[]
   } catch {
-    return defaultFinDeLiens
+    return []
   }
 }
 
@@ -213,32 +140,6 @@ function saveFinDeLiensToStorage(finDeLiens: FinDeLien[]) {
     FIN_DE_LIEN_STORAGE_KEY,
     JSON.stringify(finDeLiens),
   )
-}
-
-function getPersonnelOptions(): PersonnelOption[] {
-  if (!isBrowser()) return fallbackPersonnelOptions
-
-  try {
-    const raw = localStorage.getItem(PERSONNEL_STORAGE_KEY)
-
-    if (!raw) return fallbackPersonnelOptions
-
-    const parsed = JSON.parse(raw)
-
-    if (!Array.isArray(parsed)) return fallbackPersonnelOptions
-
-    return parsed
-      .filter((p) => p && typeof p === 'object')
-      .map((p) => ({
-        id: p.id ?? p.id_personnel ?? '',
-        nom: p.nom ?? p.last_name ?? '',
-        prenom: p.prenom ?? p.first_names ?? '',
-        matricule: p.matricule ?? '',
-      }))
-      .filter((p) => p.id)
-  } catch {
-    return fallbackPersonnelOptions
-  }
 }
 
 /* =========================================================
@@ -301,14 +202,11 @@ const typeStyles: Record<FinDeLienType, string> = {
    ========================================================= */
 
 export default function FinDeLien() {
-  const [finDeLiens, setFinDeLiens] = useState<FinDeLien[]>(() =>
-    getFinDeLiensFromStorage(),
-  )
+  const [finDeLiens, setFinDeLiens] = useState<FinDeLien[]>([])
 
-  const [personnelOptions, setPersonnelOptions] =
-    useState<PersonnelOption[]>(() =>
-      getPersonnelOptions(),
-    )
+  const [personnelOptions, setPersonnelOptions] = useState<PersonnelOption[]>([])
+  const [personnelLoadError, setPersonnelLoadError] = useState('')
+  const [loadingPersonnel, setLoadingPersonnel] = useState(true)
 
   const [search, setSearch] = useState('')
 
@@ -341,11 +239,47 @@ export default function FinDeLien() {
   function persist(next: FinDeLien[]) {
     setFinDeLiens(next)
     saveFinDeLiensToStorage(next)
+    window.dispatchEvent(new Event('sgpnrh-fin-de-lien-updated'))
   }
 
-  function refreshOptions() {
-    setPersonnelOptions(getPersonnelOptions())
-  }
+  const refreshOptions = useCallback(() => {
+    setLoadingPersonnel(true)
+    void Promise.allSettled([
+      api.get<Array<{ id_personnel: number; last_name: string; first_names: string }>>('/personnel/'),
+      api.get<Array<{ personnel_id: number; matricule: string }>>('/military-info/'),
+    ]).then(([peopleResult, militaryResult]) => {
+      if (peopleResult.status !== 'fulfilled' || !Array.isArray(peopleResult.value.data)) {
+        setPersonnelOptions([])
+        setPersonnelLoadError('Impossible de charger les personnels depuis le serveur. Vérifiez la connexion puis réessayez.')
+        setLoadingPersonnel(false)
+        return
+      }
+      const matricules = new Map(militaryResult.status === 'fulfilled' ? militaryResult.value.data.map((record) => [record.personnel_id, record.matricule]) : [])
+      const actualPeople = peopleResult.value.data.map((person) => ({
+        id: String(person.id_personnel),
+        nom: person.last_name,
+        prenom: person.first_names,
+        matricule: matricules.get(person.id_personnel) ?? '',
+      }))
+      const personById = new Map(actualPeople.map((person) => [person.id, person]))
+      setPersonnelOptions(actualPeople)
+      const actualEndings = getFinDeLiensFromStorage()
+        .filter((ending) => personById.has(ending.personnelId))
+        .map((ending) => {
+          const person = personById.get(ending.personnelId)!
+          return { ...ending, personnelNom: `${person.nom} ${person.prenom}`.trim(), matricule: person.matricule }
+        })
+      setFinDeLiens(actualEndings)
+      saveFinDeLiensToStorage(actualEndings)
+      setPersonnelLoadError('')
+      setLoadingPersonnel(false)
+    })
+  }, [])
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => refreshOptions())
+    return () => cancelAnimationFrame(frame)
+  }, [refreshOptions])
 
   /* =======================================================
      STATISTIQUES
@@ -423,6 +357,7 @@ export default function FinDeLien() {
      ======================================================= */
 
   function openCreate() {
+    if (loadingPersonnel || !personnelOptions.length) return
     refreshOptions()
 
     setFormMode('create')
@@ -628,13 +563,16 @@ export default function FinDeLien() {
           <button
             type="button"
             onClick={openCreate}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            disabled={loadingPersonnel || personnelOptions.length === 0}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus size={18} />
-            Nouvelle fin de lien
+            {loadingPersonnel ? 'Chargement des personnels…' : 'Nouvelle fin de lien'}
           </button>
 
         </div>
+
+        {personnelLoadError && <div role="alert" className="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><AlertCircle size={18} className="mt-0.5 shrink-0" />{personnelLoadError}</div>}
 
         {/* STATISTIQUES */}
 
@@ -770,6 +708,10 @@ export default function FinDeLien() {
                 {filteredFinDeLiens.length}{' '}
                 dossier(s) affiché(s)
               </p>
+              <p className="mt-1 text-xs text-amber-700">
+                Dossiers stockés sur cet appareil · aucune synchronisation serveur disponible.
+              </p>
+              {personnelLoadError && <p role="alert" className="mt-1 text-xs text-red-600">{personnelLoadError}</p>}
             </div>
 
             <div className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
@@ -781,8 +723,8 @@ export default function FinDeLien() {
           {filteredFinDeLiens.length === 0 ? (
 
             <EmptyState
-              title="Aucune fin de lien trouvée"
-              description="Aucun dossier ne correspond aux critères de recherche."
+              title={personnelLoadError ? 'Données indisponibles' : finDeLiens.length === 0 ? 'Aucune donnée' : 'Aucune fin de lien trouvée'}
+              description={personnelLoadError ? personnelLoadError : finDeLiens.length === 0 ? 'Aucun dossier de fin de lien enregistré.' : 'Aucun dossier ne correspond aux critères de recherche.'}
               icon={<FileText size={30} />}
             />
 

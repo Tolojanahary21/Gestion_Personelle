@@ -69,10 +69,10 @@ const NOTIFICATION_STORAGE_KEY = "sgpnrh_notification_settings";
 const DEFAULT_ORGANIZATION: OrganizationSettings = {
   organizationName: "Gestion du Personnel",
   acronym: "SGPNRH",
-  address: "Antananarivo, Madagascar",
-  phone: "+261 34 00 000 00",
-  email: "contact@organisation.mg",
-  website: "https://organisation.mg",
+  address: "",
+  phone: "",
+  email: "",
+  website: "",
 };
 
 const DEFAULT_SECURITY: SecuritySettings = {

@@ -134,72 +134,12 @@ export interface PersonnelProps {
 
 const PERSONNEL_STORAGE_KEY = 'sgpnrh_personnel'
 const CAREER_STORAGE_KEY = 'sgpnrh_personnel_career'
-const UNITES_STORAGE_KEY = 'sgpnrh_unites_navales'
 
 /* =========================================================
    GARDE SSR
    ========================================================= */
 
 const isBrowser = () => typeof window !== 'undefined'
-
-/* =========================================================
-   DONNÉES DE DÉMONSTRATION
-   ========================================================= */
-
-const defaultPersonnel: Personnel[] = [
-  {
-    id: 'personnel-001',
-    matricule: 'PN-2026-001',
-    nom: 'RAKOTO',
-    prenom: 'Jean',
-    grade: 'Capitaine',
-    unite: 'Base Navale',
-    fonction: 'Officier',
-    statut: 'Actif',
-  },
-  {
-    id: 'personnel-002',
-    matricule: 'PN-2026-002',
-    nom: 'RABE',
-    prenom: 'Michel',
-    grade: 'Lieutenant',
-    unite: 'État-Major',
-    fonction: 'Chef de section',
-    statut: 'Actif',
-  },
-  {
-    id: 'personnel-003',
-    matricule: 'PN-2026-003',
-    nom: 'ANDRIANA',
-    prenom: 'Paul',
-    grade: 'Enseigne de vaisseau',
-    unite: 'Base Navale',
-    fonction: 'Officier marinier',
-    statut: 'Congé',
-  },
-  {
-    id: 'personnel-004',
-    matricule: 'PN-2026-004',
-    nom: 'RASOANAIVO',
-    prenom: 'Louis',
-    grade: 'Major',
-    unite: 'Unité Logistique',
-    fonction: 'Responsable logistique',
-    statut: 'Actif',
-  },
-  {
-    id: 'personnel-005',
-    matricule: 'PN-2026-005',
-    nom: 'RAKOTOMALALA',
-    prenom: 'Andry',
-    grade: 'Adjudant',
-    unite: 'Base Navale',
-    fonction: 'Technicien',
-    statut: 'Inactif',
-  },
-]
-
-const fallbackUnits = ['Base Navale', 'État-Major', 'Unité Logistique']
 
 /* =========================================================
    FORMULAIRE VIDE
@@ -220,18 +160,18 @@ const emptyForm: PersonnelFormData = {
    ========================================================= */
 
 export function getPersonnelFromStorage(): Personnel[] {
-  if (!isBrowser()) return defaultPersonnel
+  if (!isBrowser()) return []
 
   try {
     const raw = localStorage.getItem(PERSONNEL_STORAGE_KEY)
-    if (!raw) return defaultPersonnel
+    if (!raw) return []
 
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return defaultPersonnel
+    if (!Array.isArray(parsed)) return []
 
-    return parsed as Personnel[]
+    return (parsed as Personnel[]).filter((person) => !/^personnel-00[1-5]$/.test(person.id))
   } catch {
-    return defaultPersonnel
+    return []
   }
 }
 
@@ -322,43 +262,14 @@ function generateId(prefix: string): string {
    UNITÉS
    ========================================================= */
 
-function getUnitOptions(): string[] {
-  if (!isBrowser()) return fallbackUnits
-
-  try {
-    const raw = localStorage.getItem(UNITES_STORAGE_KEY)
-    if (!raw) return fallbackUnits
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return fallbackUnits
-
-    const names = parsed
-      .map((unit) => {
-        if (typeof unit === 'string') return unit
-        if (unit && typeof unit === 'object') {
-          return unit.nom ?? unit.name ?? unit.libelle ?? unit.label ?? ''
-        }
-        return ''
-      })
-      .filter(
-        (name): name is string =>
-          typeof name === 'string' && name.trim().length > 0,
-      )
-
-    return names.length > 0 ? Array.from(new Set(names)) : fallbackUnits
-  } catch {
-    return fallbackUnits
-  }
-}
-
 /* =========================================================
    PAGE PERSONNEL
    ========================================================= */
 
 export default function Personnel({ onOpenCareer }: PersonnelProps) {
   // État initial identique côté serveur et client (pas d'accès storage ici)
-  const [personnel, setPersonnel] = useState<Personnel[]>(defaultPersonnel)
-  const [units, setUnits] = useState<string[]>(fallbackUnits)
+  const [personnel, setPersonnel] = useState<Personnel[]>([])
+  const [units] = useState<string[]>([])
   const [isHydrated, setIsHydrated] = useState(false)
 
   const [search, setSearch] = useState('')
@@ -383,7 +294,6 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       setPersonnel(getPersonnelFromStorage())
-      setUnits(getUnitOptions())
       setIsHydrated(true)
     })
     return () => cancelAnimationFrame(frame)
@@ -397,16 +307,6 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
     if (!isHydrated) return
     savePersonnelToStorage(personnel)
   }, [personnel, isHydrated])
-
-  /* =======================================================
-     ACTUALISER LES UNITÉS À L'OUVERTURE DU FORMULAIRE
-     ======================================================= */
-
-  useEffect(() => {
-    if (!isHydrated) return
-    const frame = requestAnimationFrame(() => setUnits(getUnitOptions()))
-    return () => cancelAnimationFrame(frame)
-  }, [showForm, isHydrated])
 
   /* =======================================================
      STATISTIQUES
@@ -1031,7 +931,7 @@ function PersonnelFormModal({
             <Field
               label="Matricule"
               value={form.matricule}
-              placeholder="Ex. PN-2026-006"
+              placeholder="Saisir le matricule"
               readOnly={readOnly}
               onChange={(value) => onChange('matricule', value)}
             />

@@ -103,59 +103,6 @@ function apiErrorMessage(error: unknown): string {
    STORAGE
    ========================================================= */
 
-const AFFECTATIONS_STORAGE_KEY = 'sgpnrh_affectations'
-const PERSONNEL_STORAGE_KEY = 'sgpnrh_personnel'
-const UNITES_STORAGE_KEY = 'sgpnrh_unites_navales'
-
-const isBrowser = () => typeof window !== 'undefined'
-
-/* =========================================================
-   DONNÉES DE DÉMONSTRATION
-   ========================================================= */
-
-const defaultAffectations: Affectation[] = [
-  {
-    id: 'affectation-001',
-    personnelId: 'personnel-001',
-    personnelNom: 'RAKOTO Jean',
-    unite: 'Base Navale',
-    fonction: 'Officier',
-    dateDebut: '2024-01-15',
-    dateFin: '',
-    motif: 'Affectation initiale',
-    observation: '',
-  },
-  {
-    id: 'affectation-002',
-    personnelId: 'personnel-002',
-    personnelNom: 'RABE Michel',
-    unite: 'État-Major',
-    fonction: 'Chef de section',
-    dateDebut: '2023-06-01',
-    dateFin: '',
-    motif: 'Mutation',
-    observation: 'Suite à réorganisation du commandement.',
-  },
-  {
-    id: 'affectation-003',
-    personnelId: 'personnel-004',
-    personnelNom: 'RASOANAIVO Louis',
-    unite: 'Unité Logistique',
-    fonction: 'Responsable logistique',
-    dateDebut: '2022-09-10',
-    dateFin: '2024-03-01',
-    motif: 'Fin de mission',
-    observation: '',
-  },
-]
-
-const fallbackPersonnelOptions: PersonnelOption[] = [
-  { id: 'personnel-001', nom: 'RAKOTO', prenom: 'Jean', matricule: 'PN-2026-001' },
-  { id: 'personnel-002', nom: 'RABE', prenom: 'Michel', matricule: 'PN-2026-002' },
-]
-
-const fallbackUnitOptions = ['Base Navale', 'État-Major', 'Unité Logistique']
-
 /* =========================================================
    FORMULAIRE VIDE
    ========================================================= */
@@ -171,90 +118,8 @@ const emptyForm: AffectationFormData = {
 }
 
 /* =========================================================
-   OUTILS STORAGE
-   ========================================================= */
-
-export function getAffectationsFromStorage(): Affectation[] {
-  if (!isBrowser()) return defaultAffectations
-
-  try {
-    const raw = localStorage.getItem(AFFECTATIONS_STORAGE_KEY)
-    if (!raw) return defaultAffectations
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return defaultAffectations
-
-    return parsed as Affectation[]
-  } catch {
-    return defaultAffectations
-  }
-}
-
-function saveAffectationsToStorage(affectations: Affectation[]) {
-  if (!isBrowser()) return
-  localStorage.setItem(AFFECTATIONS_STORAGE_KEY, JSON.stringify(affectations))
-}
-
-function getPersonnelOptions(): PersonnelOption[] {
-  if (!isBrowser()) return fallbackPersonnelOptions
-
-  try {
-    const raw = localStorage.getItem(PERSONNEL_STORAGE_KEY)
-    if (!raw) return fallbackPersonnelOptions
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return fallbackPersonnelOptions
-
-    return parsed
-      .filter((p) => p && typeof p === 'object')
-      .map((p) => ({
-        id: p.id ?? '',
-        nom: p.nom ?? '',
-        prenom: p.prenom ?? '',
-        matricule: p.matricule ?? '',
-      }))
-      .filter((p) => p.id)
-  } catch {
-    return fallbackPersonnelOptions
-  }
-}
-
-function getUnitOptions(): string[] {
-  if (!isBrowser()) return fallbackUnitOptions
-
-  try {
-    const raw = localStorage.getItem(UNITES_STORAGE_KEY)
-    if (!raw) return fallbackUnitOptions
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return fallbackUnitOptions
-
-    const names = parsed
-      .map((unit) => {
-        if (typeof unit === 'string') return unit
-        if (unit && typeof unit === 'object') {
-          return unit.nom ?? unit.name ?? unit.libelle ?? unit.label ?? ''
-        }
-        return ''
-      })
-      .filter(
-        (name): name is string =>
-          typeof name === 'string' && name.trim().length > 0,
-      )
-
-    return names.length > 0 ? Array.from(new Set(names)) : fallbackUnitOptions
-  } catch {
-    return fallbackUnitOptions
-  }
-}
-
-/* =========================================================
    UTILITAIRES
    ========================================================= */
-
-function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-}
 
 function getAffectationStatut(affectation: Affectation): AffectationStatut {
   const today = new Date().toISOString().slice(0, 10)

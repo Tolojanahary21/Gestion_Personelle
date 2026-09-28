@@ -122,59 +122,6 @@ interface PersonnelOption {
    STORAGE
    ========================================================= */
 
-const FORMATIONS_STORAGE_KEY = 'sgpnrh_formations'
-const PERSONNEL_STORAGE_KEY = 'sgpnrh_personnel'
-
-const isBrowser = () => typeof window !== 'undefined'
-
-/* =========================================================
-   DONNÉES DE DÉMONSTRATION
-   ========================================================= */
-
-const defaultFormations: Formation[] = [
-  {
-    id: 'formation-001',
-    nom: 'Formation sécurité maritime',
-    organisme: 'École Navale',
-    type: 'Interne',
-    lieu: 'Base Navale',
-    dateDebut: '2024-02-01',
-    dateFin: '2024-02-15',
-    participantsIds: ['personnel-001', 'personnel-005'],
-    participantsNoms: ['RAKOTO Jean', 'RAKOTOMALALA Andry'],
-    observation: '',
-  },
-  {
-    id: 'formation-002',
-    nom: 'Certification navigation avancée',
-    organisme: 'Institut Maritime International',
-    type: 'Certifiante',
-    lieu: 'Toamasina',
-    dateDebut: '2024-05-10',
-    dateFin: '2024-06-20',
-    participantsIds: ['personnel-002'],
-    participantsNoms: ['RABE Michel'],
-    observation: 'Formation menant à une qualification officielle.',
-  },
-  {
-    id: 'formation-003',
-    nom: 'Gestion logistique portuaire',
-    organisme: 'SPAT',
-    type: 'Externe',
-    lieu: 'Port de Toamasina',
-    dateDebut: '2023-11-05',
-    dateFin: '2023-11-09',
-    participantsIds: ['personnel-004'],
-    participantsNoms: ['RASOANAIVO Louis'],
-    observation: '',
-  },
-]
-
-const fallbackPersonnelOptions: PersonnelOption[] = [
-  { id: 'personnel-001', nom: 'RAKOTO', prenom: 'Jean', matricule: 'PN-2026-001' },
-  { id: 'personnel-002', nom: 'RABE', prenom: 'Michel', matricule: 'PN-2026-002' },
-]
-
 const formationTypes: FormationType[] = ['Interne', 'Externe', 'Certifiante']
 
 /* =========================================================
@@ -193,61 +140,8 @@ const emptyForm: FormationFormData = {
 }
 
 /* =========================================================
-   OUTILS STORAGE
-   ========================================================= */
-
-export function getFormationsFromStorage(): Formation[] {
-  if (!isBrowser()) return defaultFormations
-
-  try {
-    const raw = localStorage.getItem(FORMATIONS_STORAGE_KEY)
-    if (!raw) return defaultFormations
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return defaultFormations
-
-    return parsed as Formation[]
-  } catch {
-    return defaultFormations
-  }
-}
-
-function saveFormationsToStorage(formations: Formation[]) {
-  if (!isBrowser()) return
-  localStorage.setItem(FORMATIONS_STORAGE_KEY, JSON.stringify(formations))
-}
-
-function getPersonnelOptions(): PersonnelOption[] {
-  if (!isBrowser()) return fallbackPersonnelOptions
-
-  try {
-    const raw = localStorage.getItem(PERSONNEL_STORAGE_KEY)
-    if (!raw) return fallbackPersonnelOptions
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return fallbackPersonnelOptions
-
-    return parsed
-      .filter((p) => p && typeof p === 'object')
-      .map((p) => ({
-        id: p.id ?? '',
-        nom: p.nom ?? '',
-        prenom: p.prenom ?? '',
-        matricule: p.matricule ?? '',
-      }))
-      .filter((p) => p.id)
-  } catch {
-    return fallbackPersonnelOptions
-  }
-}
-
-/* =========================================================
    UTILITAIRES
    ========================================================= */
-
-function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-}
 
 function getFormationStatut(formation: Formation): FormationStatut {
   const today = new Date().toISOString().slice(0, 10)

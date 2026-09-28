@@ -1,15 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
+import QRCode from 'qrcode'
+import { jsPDF } from 'jspdf'
 import api from '../../../lib/api'
-import { downloadCsv, normalizeHeader, parseCsv, printReport } from '../../lib/personnelTransfer'
 import AnimatedCounter from '../../components/ui/AnimatedCounter'
 import type { ReactNode } from 'react'
 import {
-  Download,
   Eye,
-  FileSpreadsheet,
   Printer,
   FileText,
   Pencil,
@@ -34,8 +33,9 @@ export interface Personnel {
   grade: string
   unite: string
   fonction: string
-  statut: 'Actif' | 'Congé' | 'Inactif'
+  statut: 'Actif' | 'Inactif'
   backendMilitaryInfoId?: string
+  backendServiceStatus?: string
   enfantsCount?: number
 }
 
@@ -140,70 +140,9 @@ export interface PersonnelProps {
    STORAGE
    ========================================================= */
 
-const PERSONNEL_STORAGE_KEY = 'sgpnrh_personnel'
 const CAREER_STORAGE_KEY = 'sgpnrh_personnel_career'
-const UNITES_STORAGE_KEY = 'sgpnrh_unites_navales'
 
 const isBrowser = () => typeof window !== 'undefined'
-
-/* =========================================================
-   DONNÉES DE DÉMONSTRATION
-   ========================================================= */
-
-const defaultPersonnel: Personnel[] = [
-  {
-    id: 'personnel-001',
-    matricule: 'PN-2026-001',
-    nom: 'RAKOTO',
-    prenom: 'Jean',
-    grade: 'Capitaine',
-    unite: 'Base Navale',
-    fonction: 'Officier',
-    statut: 'Actif',
-  },
-  {
-    id: 'personnel-002',
-    matricule: 'PN-2026-002',
-    nom: 'RABE',
-    prenom: 'Michel',
-    grade: 'Lieutenant',
-    unite: 'État-Major',
-    fonction: 'Chef de section',
-    statut: 'Actif',
-  },
-  {
-    id: 'personnel-003',
-    matricule: 'PN-2026-003',
-    nom: 'ANDRIANA',
-    prenom: 'Paul',
-    grade: 'Enseigne de vaisseau',
-    unite: 'Base Navale',
-    fonction: 'Officier marinier',
-    statut: 'Congé',
-  },
-  {
-    id: 'personnel-004',
-    matricule: 'PN-2026-004',
-    nom: 'RASOANAIVO',
-    prenom: 'Louis',
-    grade: 'Major',
-    unite: 'Unité Logistique',
-    fonction: 'Responsable logistique',
-    statut: 'Actif',
-  },
-  {
-    id: 'personnel-005',
-    matricule: 'PN-2026-005',
-    nom: 'RAKOTOMALALA',
-    prenom: 'Andry',
-    grade: 'Adjudant',
-    unite: 'Base Navale',
-    fonction: 'Technicien',
-    statut: 'Inactif',
-  },
-]
-
-const fallbackUnits = ['Base Navale', 'État-Major', 'Unité Logistique']
 
 /* =========================================================
    FORMULAIRE VIDE
@@ -222,27 +161,6 @@ const emptyForm: PersonnelFormData = {
 /* =========================================================
    OUTILS STORAGE
    ========================================================= */
-
-export function getPersonnelFromStorage(): Personnel[] {
-  if (!isBrowser()) return defaultPersonnel
-
-  try {
-    const raw = localStorage.getItem(PERSONNEL_STORAGE_KEY)
-    if (!raw) return defaultPersonnel
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return defaultPersonnel
-
-    return parsed as Personnel[]
-  } catch {
-    return defaultPersonnel
-  }
-}
-
-function savePersonnelToStorage(personnel: Personnel[]) {
-  if (!isBrowser()) return
-  localStorage.setItem(PERSONNEL_STORAGE_KEY, JSON.stringify(personnel))
-}
 
 export function getCareerFromStorage(personnelId: string): PersonnelCareer {
   if (!isBrowser()) return createEmptyCareer(personnelId)
@@ -322,37 +240,25 @@ function generateId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
 }
 
-/* =========================================================
-   UNITÉS
-   ========================================================= */
-
-function getUnitOptions(): string[] {
-  if (!isBrowser()) return fallbackUnits
-
+function getPersonnelOnApprovedLeave(): Set<string> {
   try {
-    const raw = localStorage.getItem(UNITES_STORAGE_KEY)
-    if (!raw) return fallbackUnits
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return fallbackUnits
-
-    const names = parsed
-      .map((unit) => {
-        if (typeof unit === 'string') return unit
-        if (unit && typeof unit === 'object') {
-          return unit.nom ?? unit.name ?? unit.libelle ?? unit.label ?? ''
-        }
-        return ''
-      })
-      .filter(
-        (name): name is string =>
-          typeof name === 'string' && name.trim().length > 0,
-      )
-
-    return names.length > 0 ? Array.from(new Set(names)) : fallbackUnits
+    const raw = localStorage.getItem('sgpnrh_conges')
+    if (!raw) return new Set()
+    const leaves = JSON.parse(raw) as Array<{ personnelId?: string; statut?: string; dateDebut?: string; dateFin?: string }>
+    if (!Array.isArray(leaves)) return new Set()
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    return new Set(leaves
+      .filter((leave) => leave.statut === 'Approuvé' && /^\d{4}-\d{2}-\d{2}$/.test(leave.dateDebut ?? '') && /^\d{4}-\d{2}-\d{2}$/.test(leave.dateFin ?? '') && leave.dateDebut! <= today && leave.dateFin! >= today)
+      .map((leave) => String(leave.personnelId ?? ''))
+      .filter(Boolean))
   } catch {
-    return fallbackUnits
+    return new Set()
   }
+}
+
+function getBasePersonnelStatus(serviceStatus?: string): Personnel['statut'] {
+  return serviceStatus?.toLowerCase() === 'active' ? 'Actif' : 'Inactif'
 }
 
 /* =========================================================
@@ -365,9 +271,7 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
   const [grades, setGrades] = useState<BackendGrade[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [apiError, setApiError] = useState('')
-  const [transferMessage, setTransferMessage] = useState('')
-  const [isImporting, setIsImporting] = useState(false)
-  const importInput = useRef<HTMLInputElement>(null)
+  const [personnelOnLeave, setPersonnelOnLeave] = useState<Set<string>>(() => new Set())
 
   async function loadPersonnel() {
     setIsLoading(true)
@@ -383,10 +287,25 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
       const childrenByPerson = new Map<number, number>()
       childrenResponse.data.forEach((child) => childrenByPerson.set(child.personnel_id, (childrenByPerson.get(child.personnel_id) ?? 0) + 1))
       const gradeById = new Map(gradeResponse.data.map((grade) => [grade.id_grade, grade]))
+      const endedPersonnelIds = new Set<string>()
+      try {
+        const storedEndings = localStorage.getItem('sgpnrh_fin_de_lien')
+        if (storedEndings) {
+          const endings = JSON.parse(storedEndings) as Array<{ personnelId?: string; statut?: string }>
+          endings.forEach((ending) => {
+            if (['validee', 'terminee'].includes((ending.statut ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())) {
+              if (ending.personnelId) endedPersonnelIds.add(String(ending.personnelId))
+            }
+          })
+        }
+      } catch { /* Une donnée locale invalide ne bloque pas la liste du personnel. */ }
       setGrades(gradeResponse.data)
       setUnits(unitResponse.data.map((unit) => unit.name))
-      setPersonnel(personResponse.data.map((person) => {
+      const personnelOnLeave = getPersonnelOnApprovedLeave()
+      setPersonnelOnLeave(personnelOnLeave)
+      setPersonnel(personResponse.data.filter((person) => !endedPersonnelIds.has(String(person.id_personnel))).map((person) => {
         const military = militaryByPerson.get(person.id_personnel)
+        const baseStatus = getBasePersonnelStatus(military?.service_status)
         return {
           id: String(person.id_personnel),
           matricule: military?.matricule ?? '',
@@ -395,12 +314,9 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
           grade: gradeById.get(person.grade_id)?.name ?? '',
           unite: military?.unit ?? '',
           fonction: military?.specialty ?? '',
-          statut: military?.service_status === 'Suspended'
-            ? 'Congé'
-            : military?.service_status === 'Retired'
-              ? 'Inactif'
-              : 'Actif',
+          statut: baseStatus === 'Actif' && personnelOnLeave.has(String(person.id_personnel)) ? 'Inactif' : baseStatus,
           backendMilitaryInfoId: military ? String(military.id_military_info) : undefined,
+          backendServiceStatus: military?.service_status ?? 'Active',
           enfantsCount: childrenByPerson.get(person.id_personnel) ?? 0,
         }
       }))
@@ -415,15 +331,44 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
   useEffect(() => {
     const frame = requestAnimationFrame(() => { void loadPersonnel() })
     const refreshChildren = () => { void loadPersonnel() }
+    const refreshLeaveStatus = () => {
+      const personnelOnLeave = getPersonnelOnApprovedLeave()
+      setPersonnelOnLeave(personnelOnLeave)
+      setPersonnel((current) => current.map((person) => {
+        const baseStatus = getBasePersonnelStatus(person.backendServiceStatus)
+        return { ...person, statut: baseStatus === 'Actif' && personnelOnLeave.has(person.id) ? 'Inactif' : baseStatus }
+      }))
+    }
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'sgpnrh_conges') refreshLeaveStatus()
+    }
+    let midnightTimer = 0
+    const scheduleMidnightRefresh = () => {
+      const nextMidnight = new Date()
+      nextMidnight.setHours(24, 0, 1, 0)
+      midnightTimer = window.setTimeout(() => {
+        refreshLeaveStatus()
+        scheduleMidnightRefresh()
+      }, Math.max(1000, nextMidnight.getTime() - Date.now()))
+    }
+    scheduleMidnightRefresh()
     window.addEventListener('sgpnrh-children-updated', refreshChildren)
+    window.addEventListener('sgpnrh-fin-de-lien-updated', refreshChildren)
+    window.addEventListener('sgpnrh-leaves-updated', refreshLeaveStatus)
+    window.addEventListener('storage', handleStorage)
     return () => {
       cancelAnimationFrame(frame)
+      window.clearTimeout(midnightTimer)
       window.removeEventListener('sgpnrh-children-updated', refreshChildren)
+      window.removeEventListener('sgpnrh-fin-de-lien-updated', refreshChildren)
+      window.removeEventListener('sgpnrh-leaves-updated', refreshLeaveStatus)
+      window.removeEventListener('storage', handleStorage)
     }
   }, [])
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'Tous' | 'Actif' | 'Congé' | 'Inactif'>('Tous')
+  const [gradeFilter, setGradeFilter] = useState('Tous')
 
   const [showForm, setShowForm] = useState(false)
   const [formMode, setFormMode] = useState<'create' | 'view' | 'edit'>('create')
@@ -438,7 +383,7 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
 
   const totalPersonnel = personnel.length
   const totalActif = personnel.filter((p) => p.statut === 'Actif').length
-  const totalConge = personnel.filter((p) => p.statut === 'Congé').length
+  const totalConge = personnel.filter((person) => personnelOnLeave.has(person.id)).length
   const totalInactif = personnel.filter((p) => p.statut === 'Inactif').length
 
   /* =======================================================
@@ -458,12 +403,13 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
         person.unite.toLowerCase().includes(normalizedSearch) ||
         person.fonction.toLowerCase().includes(normalizedSearch)
 
-      const matchesStatus =
-        statusFilter === 'Tous' || person.statut === statusFilter
+      const matchesStatus = statusFilter === 'Tous'
+        || (statusFilter === 'Congé' ? personnelOnLeave.has(person.id) : person.statut === statusFilter)
+      const matchesGrade = gradeFilter === 'Tous' || person.grade === gradeFilter
 
-      return matchesSearch && matchesStatus
+      return matchesSearch && matchesStatus && matchesGrade
     })
-  }, [personnel, search, statusFilter])
+  }, [personnel, search, statusFilter, gradeFilter, personnelOnLeave])
 
   /* =======================================================
      AJOUTER
@@ -567,7 +513,9 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
       matricule: form.matricule.trim(),
       unit: form.unite.trim() || null,
       specialty: form.fonction.trim() || null,
-      service_status: form.statut === 'Actif' ? 'Active' : form.statut === 'Congé' ? 'Suspended' : 'Retired',
+      service_status: selectedPerson && form.statut === selectedPerson.statut
+        ? selectedPerson.backendServiceStatus ?? 'Active'
+        : form.statut === 'Actif' ? 'Active' : 'Retired',
     }
     let createdPersonnelId: number | undefined
     try {
@@ -640,58 +588,60 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
   const exportHeaders = ['Matricule', 'Nom', 'Prénom', 'Grade', 'Unité', 'Fonction', 'Statut']
   const exportRows = () => personnel.map((person) => [person.matricule, person.nom, person.prenom, person.grade, person.unite, person.fonction, person.statut])
 
-  function exportPersonnel(format: 'excel' | 'pdf') {
-    if (format === 'excel') downloadCsv('personnel.csv', exportHeaders, exportRows())
-    else {
-      try { printReport('Liste du personnel', exportHeaders, exportRows()) }
-      catch (error) { setApiError(error instanceof Error ? error.message : 'Impossible de générer le PDF.') }
-    }
+  async function downloadPdf(title: string, headers: string[], rows: (string | number | null | undefined)[][], filename: string) {
+    try {
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const left = 16
+      const lineWidth = pageWidth - left * 2 - 32
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        if (rowIndex > 0) pdf.addPage()
+        const row = rows[rowIndex]
+        const values = Object.fromEntries(headers.map((header, index) => [header, String(row[index] ?? '—')]))
+        const reference = values.Matricule ?? `dossier-${rowIndex + 1}`
+        const qr = await QRCode.toDataURL(JSON.stringify({ type: 'dossier-personnel', matricule: reference, name: values.Nom ?? title, fields: values }), { width: 180, margin: 1 })
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(18)
+        pdf.text(title, left, 20, { maxWidth: lineWidth })
+        pdf.addImage(qr, 'PNG', pageWidth - 40, 27, 24, 24)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(9)
+        pdf.setTextColor(100, 116, 139)
+        pdf.text(`Généré le ${new Date().toLocaleString('fr-FR')} · ${rowIndex + 1}/${rows.length}`, left, 29)
+        pdf.setTextColor(15, 23, 42)
+        let y = 44
+        headers.forEach((header, index) => {
+          const value = String(row[index] ?? '—')
+          pdf.setFont('helvetica', 'bold')
+          pdf.setFontSize(10)
+          const labelLines = pdf.splitTextToSize(header, 35) as string[]
+          pdf.setFont('helvetica', 'normal')
+          const valueLines = pdf.splitTextToSize(value, lineWidth - 40) as string[]
+          const lines = Math.max(labelLines.length, valueLines.length)
+          if (y + lines * 5 + 6 > pageHeight - 18) { pdf.addPage(); y = 20 }
+          pdf.setDrawColor(226, 232, 240)
+          pdf.line(left, y + lines * 5 + 2, pageWidth - left, y + lines * 5 + 2)
+          pdf.setFont('helvetica', 'bold')
+          pdf.text(labelLines, left, y)
+          pdf.setFont('helvetica', 'normal')
+          pdf.text(valueLines, left + 40, y)
+          y += lines * 5 + 8
+        })
+      }
+      pdf.save(filename)
+    } catch (error) { setApiError(error instanceof Error ? error.message : 'Impossible de télécharger le PDF.') }
   }
 
-  async function importPersonnelFile(file?: File) {
-    if (!file) return
-    setTransferMessage('')
-    setApiError('')
-    setIsImporting(true)
-    let createdCount = 0
-    const rowErrors: string[] = []
-    try {
-      if (file.size > 5 * 1024 * 1024) throw new Error('Le fichier dépasse la limite de 5 Mo.')
-      const entries = parseCsv(await file.text())
-      if (!entries.length) throw new Error('Fichier vide ou format CSV invalide. Dans Excel, enregistrez le classeur au format CSV UTF-8 avant l’import.')
-      if (entries.length > 2000) throw new Error('Limite d’import : 2 000 lignes par fichier.')
-      const knownNumbers = new Set(personnel.map((person) => normalizeHeader(person.matricule)))
-      for (let index = 0; index < entries.length; index += 1) {
-        const source = entries[index]
-        const get = (...aliases: string[]) => aliases.map((alias) => source[normalizeHeader(alias)] ?? '').find((value) => value.trim())?.trim() ?? ''
-        const nom = get('nom', 'last_name')
-        const prenom = get('prenom', 'first_names', 'prénom')
-        const matricule = get('matricule', 'service_number')
-        const gradeName = get('grade', 'rang')
-        const grade = grades.find((item) => normalizeHeader(item.name) === normalizeHeader(gradeName) || normalizeHeader(item.code) === normalizeHeader(gradeName))
-        if (!nom || !prenom || !matricule || !grade) {
-          rowErrors.push(`Ligne ${index + 2} : nom, prénom, matricule et grade existant sont obligatoires.`)
-          continue
-        }
-        if (knownNumbers.has(normalizeHeader(matricule))) { rowErrors.push(`Ligne ${index + 2} : matricule déjà présent (${matricule}).`); continue }
-        let personnelId: number | undefined
-        try {
-          const created = await api.post<BackendPersonnel>('/personnel/', { last_name: nom, first_names: prenom, grade_id: grade.id_grade })
-          personnelId = created.data.id_personnel
-          const statusValue = normalizeHeader(get('statut', 'status'))
-          const serviceStatus = ['inactif', 'retired', 'retraite'].includes(statusValue) ? 'Retired' : ['conge', 'enconge', 'suspended'].includes(statusValue) ? 'Suspended' : 'Active'
-          await api.post('/military-info/', { personnel_id: personnelId, matricule, unit: get('unite', 'unit') || null, specialty: get('fonction', 'specialty') || null, service_status: serviceStatus })
-          createdCount += 1
-          knownNumbers.add(normalizeHeader(matricule))
-        } catch (error) {
-          if (personnelId) { try { await api.delete(`/personnel/${personnelId}`) } catch { /* Préserver l’erreur principale de la ligne. */ } }
-          rowErrors.push(`Ligne ${index + 2} : ${apiErrorMessage(error)}`)
-        }
-      }
-      await loadPersonnel()
-      setTransferMessage(`${createdCount} personnel(s) importé(s).${rowErrors.length ? ` ${rowErrors.length} ligne(s) à corriger. ${rowErrors.slice(0, 3).join(' ')}` : ''}`)
-    } catch (error) { setApiError(error instanceof Error ? error.message : apiErrorMessage(error)) }
-    finally { setIsImporting(false); if (importInput.current) importInput.current.value = '' }
+  function exportPersonnelPdf() {
+    void downloadPdf('Liste du personnel', exportHeaders, exportRows(), 'liste-personnel.pdf')
+  }
+
+  function exportPersonPdf(person: Personnel) {
+      void downloadPdf(`Dossier personnel · ${getFullName(person)}`, ['Matricule', 'Nom', 'Prénom', 'Grade', 'Unité', 'Fonction', 'Statut', 'Enfants'], [[
+        person.matricule, person.nom, person.prenom, person.grade,
+        person.unite, person.fonction, person.statut, String(person.enfantsCount ?? 0),
+      ]], `dossier-${person.matricule || person.id}.pdf`)
   }
 
   /* =======================================================
@@ -721,18 +671,12 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <input ref={importInput} type="file" accept=".csv,text/csv,.txt,text/plain" className="hidden" onChange={(event) => void importPersonnelFile(event.target.files?.[0])} />
-            <button type="button" onClick={() => importInput.current?.click()} disabled={isImporting || isLoading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><FileSpreadsheet size={17} />{isImporting ? 'Importation…' : 'Importer Excel (CSV)'}</button>
-            <button type="button" onClick={() => downloadCsv('modele-import-personnel.csv', ['matricule', 'nom', 'prenom', 'grade', 'unite', 'fonction', 'statut'], [])} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Download size={17} />Modèle CSV</button>
-            <button type="button" onClick={() => exportPersonnel('excel')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Download size={17} />Excel (CSV)</button>
-            <button type="button" onClick={() => exportPersonnel('pdf')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Printer size={17} />PDF</button>
+            <button type="button" onClick={exportPersonnelPdf} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Printer size={17} />Exporter PDF</button>
             <button type="button" onClick={openCreate} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"><Plus size={18} />Ajouter un personnel</button>
           </div>
         </div>
 
         {apiError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{apiError}</div>}
-        {transferMessage && <div role="status" className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{transferMessage}</div>}
-        <p className="mb-4 text-xs text-slate-500">Import : fichier CSV exporté depuis Excel avec les colonnes matricule, nom, prénom, grade, unité, fonction et statut. L’export PDF ouvre la boîte d’impression (choisir « Enregistrer en PDF »).</p>
         {isLoading && <p className="mb-4 text-sm text-slate-500">Chargement du personnel…</p>}
 
         {/* STATISTIQUES */}
@@ -793,6 +737,10 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
               <option value="Actif">Actif</option>
               <option value="Congé">Congé</option>
               <option value="Inactif">Inactif</option>
+            </select>
+            <select value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)} aria-label="Filtrer par grade" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10">
+              <option value="Tous">Tous les grades</option>
+              {grades.map((grade) => <option key={grade.id_grade} value={grade.name}>{grade.name}</option>)}
             </select>
           </div>
         </div>
@@ -902,6 +850,7 @@ export default function Personnel({ onOpenCareer }: PersonnelProps) {
 
                       <td className="px-5 py-4">
                         <div className="flex justify-end gap-1.5">
+                          <button type="button" onClick={() => exportPersonPdf(person)} title="Exporter le dossier PDF" aria-label={`Exporter le dossier PDF de ${getFullName(person)}`} className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-blue-700"><Printer size={17} /></button>
                           <button
                             type="button"
                             onClick={() => openView(person)}
@@ -1046,7 +995,6 @@ function PersonnelAvatar({ person }: { person: Personnel }) {
 function StatusBadge({ status }: { status: Personnel['statut'] }) {
   const styles: Record<Personnel['statut'], string> = {
     Actif: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    Congé: 'border-amber-200 bg-amber-50 text-amber-700',
     Inactif: 'border-red-200 bg-red-50 text-red-700',
   }
 
@@ -1144,8 +1092,8 @@ function PersonnelFormModal({
             <Field
               label="Matricule"
               value={form.matricule}
-              placeholder="Ex. PN-2026-006"
-              readOnly={readOnly}
+              placeholder="Saisir le matricule"
+              readOnly={readOnly || mode === 'edit'}
               onChange={(value) => onChange('matricule', value)}
             />
             <Field
@@ -1186,7 +1134,7 @@ function PersonnelFormModal({
             <SelectField
               label="Statut"
               value={form.statut}
-              options={['Actif', 'Congé', 'Inactif']}
+              options={['Actif', 'Inactif']}
               readOnly={readOnly}
               onChange={(value) => onChange('statut', value)}
             />

@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { Bell, Menu, Search, User, ChevronDown, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Bell, LogOut, Menu, Search, User, ChevronDown, X } from "lucide-react";
+import api from "../../../../../../lib/api";
+
+type UserProfile = { username: string; role: string; personnel_id: number | null };
+type PersonnelProfile = { first_names: string; last_name: string };
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -12,7 +17,41 @@ export default function Header({
   onMenuClick,
   notificationCount = 3,
 }: HeaderProps) {
+  const router = useRouter();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [displayName, setDisplayName] = useState("Administrateur");
+  const [photo, setPhoto] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const { data: user } = await api.get<UserProfile>("/auth/me", { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        setDisplayName(user.username || "Administrateur");
+        if (user.personnel_id) {
+          const { data: person } = await api.get<PersonnelProfile>(`/personnel/${user.personnel_id}`, { signal: controller.signal });
+          if (controller.signal.aborted) return;
+          const fullName = `${person.first_names ?? ""} ${person.last_name ?? ""}`.trim();
+          if (fullName) setDisplayName(fullName);
+          setPhoto(localStorage.getItem(`sgpnrh_photo_${user.personnel_id}`));
+        }
+      } catch {
+        // Keep the dashboard usable when profile information is temporarily unavailable.
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
+  async function logout() {
+    try {
+      await api.post("/auth/logout");
+    } finally {
+      router.replace("/login");
+      router.refresh();
+    }
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur-sm sm:px-6">
@@ -90,24 +129,42 @@ export default function Header({
         <div className="hidden h-8 w-px bg-slate-200 sm:block" />
 
         {/* Profil administrateur */}
+        <div className="relative">
         <button
           type="button"
-          aria-label="Profil administrateur"
+          aria-label={`Profil de ${displayName}`}
+          aria-expanded={profileMenuOpen}
+          onClick={() => setProfileMenuOpen((open) => !open)}
           className="flex items-center gap-2 rounded-xl px-2 py-1.5 transition hover:bg-slate-100"
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-sm">
-            <User className="h-5 w-5" />
-          </div>
+          {photo ? (
+            // Local personnel photos are data URLs, so the native image element avoids remote host configuration.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo} alt={`Photo de ${displayName}`} className="h-9 w-9 shrink-0 rounded-full object-cover shadow-sm" />
+          ) : (
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-sm">
+              <User className="h-5 w-5" />
+            </div>
+          )}
 
           <div className="hidden text-left md:block">
             <p className="text-sm font-semibold text-slate-900">
-              Administrateur
+              {displayName}
             </p>
-            <p className="text-xs text-slate-500">Responsable système</p>
+            <p className="text-xs text-slate-500">{displayName === "Administrateur" ? "Responsable système" : "Personnel connecté"}</p>
           </div>
 
           <ChevronDown className="hidden h-4 w-4 shrink-0 text-slate-400 md:block" />
         </button>
+        {profileMenuOpen && (
+          <div className="absolute right-0 top-full z-50 mt-2 max-h-60 w-56 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+            <div className="truncate px-3 py-2 text-sm font-medium text-slate-700">{displayName}</div>
+            <button type="button" onClick={() => void logout()} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 transition hover:bg-red-50">
+              <LogOut className="h-4 w-4" /> Déconnexion
+            </button>
+          </div>
+        )}
+        </div>
       </div>
     </header>
   );

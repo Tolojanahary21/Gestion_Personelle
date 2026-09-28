@@ -40,11 +40,12 @@ export function downloadCsv(filename: string, headers: string[], rows: (string |
   link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 }
 
-export function printReport(title: string, headers: string[], rows: (string | number | null | undefined)[][]) {
-  const popup = window.open("", "_blank", "width=1000,height=720");
+export function printReport(title: string, headers: string[], rows: (string | number | null | undefined)[][], qrDataUrl?: string, target?: Window) {
+  const popup = target ?? window.open("", "_blank", "width=1000,height=720");
   if (!popup) throw new Error("Autorisez les fenêtres contextuelles pour générer le PDF.");
   popup.opener = null;
   const escape = (value: string | number | null | undefined) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
-  popup.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${escape(title)}</title><style>body{font:12px Arial,sans-serif;color:#111827;padding:28px}h1{font-size:20px}p{color:#64748b}table{border-collapse:collapse;width:100%;margin-top:20px}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left}th{background:#f1f5f9}@media print{body{padding:0}}</style></head><body><h1>${escape(title)}</h1><p>Généré le ${escape(new Date().toLocaleString("fr-FR"))}</p><table><thead><tr>${headers.map((header) => `<th>${escape(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escape(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table><script>window.onload=()=>window.print()</script></body></html>`);
+  popup.document.open();
+  popup.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${escape(title)}</title><style>body{font:12px Arial,sans-serif;color:#111827;padding:28px}h1{font-size:20px}p{color:#64748b}table{border-collapse:collapse;width:100%;margin-top:20px}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left}th{background:#f1f5f9}.verification{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:28px;color:#64748b;font-size:10px}.verification img{width:88px;height:88px}@media print{body{padding:0}}</style></head><body><h1>${escape(title)}</h1><p>Généré le ${escape(new Date().toLocaleString("fr-FR"))}</p><table><thead><tr>${headers.map((header) => `<th>${escape(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escape(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>${qrDataUrl ? `<footer class="verification"><span>QR de référence · ${escape(title)}</span><img src="${escape(qrDataUrl)}" alt="QR de référence" /></footer>` : ""}<script>window.onload=()=>window.print()</script></body></html>`);
   popup.document.close();
 }

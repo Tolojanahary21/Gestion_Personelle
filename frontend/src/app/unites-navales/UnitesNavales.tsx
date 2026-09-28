@@ -28,6 +28,7 @@ export type UniteType =
   | 'Patrouilleur'
   | 'Vedette'
   | 'Unité Logistique'
+  | 'Autre'
 
 export type UniteStatut = 'Opérationnelle' | 'En maintenance' | 'Désarmée'
 
@@ -37,7 +38,7 @@ export interface UniteNavale {
   type: UniteType
   localisation: string
   commandant: string
-  effectifTheorique: number
+  effectifTheorique: number | null
   statut: UniteStatut
   description: string
 }
@@ -47,7 +48,7 @@ export interface UniteFormData {
   type: UniteType
   localisation: string
   commandant: string
-  effectifTheorique: number
+  effectifTheorique: number | null
   statut: UniteStatut
   description: string
 }
@@ -78,13 +79,7 @@ function unitTypeToApi(type: UniteType) {
 
 function fromBackendUnit(unit: BackendUnit, people: BackendPerson[]): UniteNavale {
   const knownType = uniteTypes.find((type) => unit.name.toLocaleLowerCase().includes(type.toLocaleLowerCase()))
-  const type: UniteType = knownType ?? (unit.unit_type === 'Headquarters'
-    ? 'Base Navale'
-    : unit.unit_type === 'Department'
-      ? 'Unité Logistique'
-      : unit.unit_type === 'Squadron'
-        ? 'Patrouilleur'
-        : 'Base Navale')
+  const type: UniteType = knownType ?? 'Autre'
   const commander = people.find((person) => person.id_personnel === unit.commander_personnel_id)
   return {
     id: String(unit.id_unit),
@@ -92,7 +87,7 @@ function fromBackendUnit(unit: BackendUnit, people: BackendPerson[]): UniteNaval
     type,
     localisation: unit.location ?? '',
     commandant: commander ? `${commander.first_names} ${commander.last_name}` : '',
-    effectifTheorique: 0,
+    effectifTheorique: null,
     statut: unit.active ? 'Opérationnelle' : 'Désarmée',
     description: unit.description ?? '',
   }
@@ -109,57 +104,6 @@ function apiErrorMessage(error: unknown): string {
    STORAGE
    ========================================================= */
 
-const UNITES_STORAGE_KEY = 'sgpnrh_unites_navales'
-
-const isBrowser = () => typeof window !== 'undefined'
-
-/* =========================================================
-   DONNÉES DE DÉMONSTRATION
-   ========================================================= */
-
-const defaultUnites: UniteNavale[] = [
-  {
-    id: 'unite-001',
-    nom: 'Base Navale',
-    type: 'Base Navale',
-    localisation: 'Toamasina',
-    commandant: 'Capitaine RAKOTO',
-    effectifTheorique: 220,
-    statut: 'Opérationnelle',
-    description: 'Base navale principale, port d\'attache de la flotte.',
-  },
-  {
-    id: 'unite-002',
-    nom: 'État-Major',
-    type: 'État-Major',
-    localisation: 'Antananarivo',
-    commandant: 'Capitaine de frégate RABE',
-    effectifTheorique: 45,
-    statut: 'Opérationnelle',
-    description: 'Commandement et coordination des opérations.',
-  },
-  {
-    id: 'unite-003',
-    nom: 'Unité Logistique',
-    type: 'Unité Logistique',
-    localisation: 'Toamasina',
-    commandant: 'Major RASOANAIVO',
-    effectifTheorique: 60,
-    statut: 'Opérationnelle',
-    description: 'Approvisionnement, maintenance et soutien matériel.',
-  },
-  {
-    id: 'unite-004',
-    nom: 'Patrouilleur Zafy',
-    type: 'Patrouilleur',
-    localisation: 'Mahajanga',
-    commandant: 'Lieutenant ANDRIANA',
-    effectifTheorique: 25,
-    statut: 'En maintenance',
-    description: 'Surveillance côtière et lutte contre la pêche illégale.',
-  },
-]
-
 const uniteTypes: UniteType[] = [
   'Base Navale',
   'État-Major',
@@ -167,6 +111,7 @@ const uniteTypes: UniteType[] = [
   'Patrouilleur',
   'Vedette',
   'Unité Logistique',
+  'Autre',
 ]
 
 const uniteStatuts: UniteStatut[] = [
@@ -184,43 +129,14 @@ const emptyForm: UniteFormData = {
   type: 'Base Navale',
   localisation: '',
   commandant: '',
-  effectifTheorique: 0,
+  effectifTheorique: null,
   statut: 'Opérationnelle',
   description: '',
 }
 
 /* =========================================================
-   OUTILS STORAGE
-   ========================================================= */
-
-export function getUnitesFromStorage(): UniteNavale[] {
-  if (!isBrowser()) return defaultUnites
-
-  try {
-    const raw = localStorage.getItem(UNITES_STORAGE_KEY)
-    if (!raw) return defaultUnites
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return defaultUnites
-
-    return parsed as UniteNavale[]
-  } catch {
-    return defaultUnites
-  }
-}
-
-function saveUnitesToStorage(unites: UniteNavale[]) {
-  if (!isBrowser()) return
-  localStorage.setItem(UNITES_STORAGE_KEY, JSON.stringify(unites))
-}
-
-/* =========================================================
    UTILITAIRES
    ========================================================= */
-
-function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-}
 
 const typeIcons: Record<UniteType, ReactNode> = {
   'Base Navale': <Anchor size={15} />,
@@ -229,6 +145,7 @@ const typeIcons: Record<UniteType, ReactNode> = {
   Patrouilleur: <Ship size={15} />,
   Vedette: <Ship size={15} />,
   'Unité Logistique': <Anchor size={15} />,
+  Autre: <Anchor size={15} />,
 }
 
 const statutStyles: Record<UniteStatut, string> = {
@@ -299,10 +216,10 @@ export default function UnitesNavales() {
     (u) => u.statut === 'En maintenance',
   ).length
 
-  const effectifTotal = unites.reduce(
-    (sum, u) => sum + (u.effectifTheorique || 0),
-    0,
-  )
+  const effectifDisponible = unites.length > 0 && unites.every((unite) => unite.effectifTheorique !== null)
+  const effectifTotal = effectifDisponible
+    ? unites.reduce((sum, unite) => sum + (unite.effectifTheorique ?? 0), 0)
+    : null
 
   /* =======================================================
      RECHERCHE / FILTRE
@@ -393,7 +310,7 @@ export default function UnitesNavales() {
     setForm((previous) => ({
       ...previous,
       [field]:
-        field === 'effectifTheorique' ? Number(value) || 0 : value,
+        field === 'effectifTheorique' ? (value === '' ? null : Number(value)) : value,
     }))
   }
 
@@ -516,7 +433,7 @@ export default function UnitesNavales() {
           />
           <StatCard
             title="Effectif théorique"
-            value={effectifTotal}
+            value={effectifTotal ?? '—'}
             description="Personnel prévu, toutes unités"
             icon={<Users size={21} />}
           />
@@ -660,7 +577,7 @@ export default function UnitesNavales() {
 
                       <td className="px-5 py-4">
                         <span className="text-sm font-medium text-slate-700">
-                          {unite.effectifTheorique}
+                          {unite.effectifTheorique ?? '—'}
                         </span>
                       </td>
 
@@ -890,7 +807,7 @@ function UniteFormModal({
 
             <Field
               label="Effectif théorique"
-              value={String(form.effectifTheorique)}
+              value={form.effectifTheorique === null ? '' : String(form.effectifTheorique)}
               placeholder="Ex. 120"
               readOnly={readOnly}
               type="number"

@@ -1,7 +1,7 @@
 
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import AnimatedCounter from '../../components/ui/AnimatedCounter'
 import {
@@ -18,6 +18,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import api from '../../../lib/api'
 
 /* =========================================================
    TYPES
@@ -75,87 +76,8 @@ interface PersonnelOption {
    ========================================================= */
 
 const CONGES_STORAGE_KEY = 'sgpnrh_conges'
-const PERSONNEL_STORAGE_KEY = 'sgpnrh_personnel'
 
 const isBrowser = () => typeof window !== 'undefined'
-
-/* =========================================================
-   DONNÉES DE DÉMONSTRATION
-   ========================================================= */
-
-const defaultConges: Conge[] = [
-  {
-    id: 'conge-001',
-    personnelId: 'personnel-001',
-    personnelNom: 'RAKOTO Jean',
-    matricule: 'PN-2026-001',
-    type: 'Annuel',
-    dateDebut: '2026-09-01',
-    dateFin: '2026-09-10',
-    nombreJours: 10,
-    motif: 'Congé annuel',
-    lieu: 'Antananarivo',
-    statut: 'Approuvé',
-    observation: '',
-  },
-  {
-    id: 'conge-002',
-    personnelId: 'personnel-002',
-    personnelNom: 'RABE Michel',
-    matricule: 'PN-2026-002',
-    type: 'Exceptionnel',
-    dateDebut: '2026-09-20',
-    dateFin: '2026-09-22',
-    nombreJours: 3,
-    motif: 'Événement familial',
-    lieu: 'Toamasina',
-    statut: 'En cours',
-    observation: 'Autorisation exceptionnelle accordée.',
-  },
-  {
-    id: 'conge-003',
-    personnelId: 'personnel-004',
-    personnelNom: 'RASOANAIVO Louis',
-    matricule: 'PN-2026-004',
-    type: 'Maladie',
-    dateDebut: '2026-08-05',
-    dateFin: '2026-08-12',
-    nombreJours: 8,
-    motif: 'Arrêt maladie',
-    lieu: '',
-    statut: 'Terminé',
-    observation: '',
-  },
-  {
-    id: 'conge-004',
-    personnelId: 'personnel-005',
-    personnelNom: 'RAKOTOMALALA Andry',
-    matricule: 'PN-2026-005',
-    type: 'Annuel',
-    dateDebut: '2026-10-10',
-    dateFin: '2026-10-20',
-    nombreJours: 11,
-    motif: 'Congé annuel',
-    lieu: 'Fianarantsoa',
-    statut: 'En attente',
-    observation: '',
-  },
-]
-
-const fallbackPersonnelOptions: PersonnelOption[] = [
-  {
-    id: 'personnel-001',
-    nom: 'RAKOTO',
-    prenom: 'Jean',
-    matricule: 'PN-2026-001',
-  },
-  {
-    id: 'personnel-002',
-    nom: 'RABE',
-    prenom: 'Michel',
-    matricule: 'PN-2026-002',
-  },
-]
 
 const congeTypes: CongeType[] = [
   'Annuel',
@@ -193,20 +115,20 @@ const emptyForm: CongeFormData = {
    ========================================================= */
 
 export function getCongesFromStorage(): Conge[] {
-  if (!isBrowser()) return defaultConges
+  if (!isBrowser()) return []
 
   try {
     const raw = localStorage.getItem(CONGES_STORAGE_KEY)
 
-    if (!raw) return defaultConges
+    if (!raw) return []
 
     const parsed = JSON.parse(raw)
 
-    if (!Array.isArray(parsed)) return defaultConges
+    if (!Array.isArray(parsed)) return []
 
-    return parsed as Conge[]
+    return (parsed as Conge[]).filter((conge) => /^\d+$/.test(String(conge.personnelId)) && !/^conge-00[1-4]$/.test(conge.id))
   } catch {
-    return defaultConges
+    return []
   }
 }
 
@@ -214,32 +136,6 @@ function saveCongesToStorage(conges: Conge[]) {
   if (!isBrowser()) return
 
   localStorage.setItem(CONGES_STORAGE_KEY, JSON.stringify(conges))
-}
-
-function getPersonnelOptions(): PersonnelOption[] {
-  if (!isBrowser()) return fallbackPersonnelOptions
-
-  try {
-    const raw = localStorage.getItem(PERSONNEL_STORAGE_KEY)
-
-    if (!raw) return fallbackPersonnelOptions
-
-    const parsed = JSON.parse(raw)
-
-    if (!Array.isArray(parsed)) return fallbackPersonnelOptions
-
-    return parsed
-      .filter((p) => p && typeof p === 'object')
-      .map((p) => ({
-        id: p.id ?? p.id_personnel ?? '',
-        nom: p.nom ?? p.last_name ?? '',
-        prenom: p.prenom ?? p.first_names ?? '',
-        matricule: p.matricule ?? '',
-      }))
-      .filter((p) => p.id)
-  } catch {
-    return fallbackPersonnelOptions
-  }
 }
 
 /* =========================================================
@@ -309,8 +205,44 @@ export default function Conge() {
   )
 
   const [personnelOptions, setPersonnelOptions] = useState<PersonnelOption[]>(
-    () => getPersonnelOptions(),
+    [],
   )
+  const [personnelLoadError, setPersonnelLoadError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const loadPersonnel = async () => {
+      try {
+        const [peopleResponse, militaryResponse] = await Promise.all([
+          api.get<Array<{ id_personnel: number; last_name: string; first_names: string }>>('/personnel/'),
+          api.get<Array<{ personnel_id: number; matricule: string }>>('/military-info/'),
+        ])
+        if (!active) return
+        const militaryByPerson = new Map(militaryResponse.data.map((item) => [item.personnel_id, item]))
+        const people = peopleResponse.data.map((person) => ({
+          id: String(person.id_personnel),
+          nom: person.last_name,
+          prenom: person.first_names,
+          matricule: militaryByPerson.get(person.id_personnel)?.matricule ?? '',
+        }))
+        const peopleById = new Map(people.map((person) => [person.id, person]))
+        setPersonnelOptions(people)
+        const existing = getCongesFromStorage()
+          .filter((conge) => peopleById.has(conge.personnelId))
+          .map((conge) => {
+            const person = peopleById.get(conge.personnelId)!
+            return { ...conge, personnelNom: `${person.nom} ${person.prenom}`.trim(), matricule: person.matricule }
+          })
+        setConges(existing)
+        saveCongesToStorage(existing)
+        setPersonnelLoadError('')
+      } catch {
+        if (active) setPersonnelLoadError('Données du personnel indisponibles. Vérifiez la connexion au serveur.')
+      }
+    }
+    void loadPersonnel()
+    return () => { active = false }
+  }, [])
 
   const [search, setSearch] = useState('')
 
@@ -341,10 +273,7 @@ export default function Conge() {
   function persist(next: Conge[]) {
     setConges(next)
     saveCongesToStorage(next)
-  }
-
-  function refreshOptions() {
-    setPersonnelOptions(getPersonnelOptions())
+    window.dispatchEvent(new Event('sgpnrh-leaves-updated'))
   }
 
   /* =======================================================
@@ -410,8 +339,6 @@ export default function Conge() {
      ======================================================= */
 
   function openCreate() {
-    refreshOptions()
-
     setFormMode('create')
     setForm({ ...emptyForm })
     setSelectedConge(null)
@@ -423,8 +350,6 @@ export default function Conge() {
      ======================================================= */
 
   function openView(conge: Conge) {
-    refreshOptions()
-
     setSelectedConge(conge)
 
     setFormMode('view')
@@ -448,8 +373,6 @@ export default function Conge() {
      ======================================================= */
 
   function openEdit(conge: Conge) {
-    refreshOptions()
-
     setSelectedConge(conge)
 
     setFormMode('edit')
@@ -733,6 +656,10 @@ export default function Conge() {
                 {filteredConges.length} congé(s)
                 affiché(s)
               </p>
+              <p className="mt-1 text-xs text-amber-700">
+                Congés stockés sur cet appareil · aucune synchronisation serveur disponible.
+              </p>
+              {personnelLoadError && <p role="alert" className="mt-1 text-xs text-red-600">{personnelLoadError}</p>}
             </div>
 
             <div className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
@@ -742,8 +669,8 @@ export default function Conge() {
 
           {filteredConges.length === 0 ? (
             <EmptyState
-              title="Aucun congé trouvé"
-              description="Aucun congé ne correspond aux critères de recherche."
+              title={personnelLoadError ? 'Données indisponibles' : conges.length === 0 ? 'Aucune donnée' : 'Aucun congé trouvé'}
+              description={personnelLoadError ? personnelLoadError : conges.length === 0 ? 'Aucun congé enregistré.' : 'Aucun congé ne correspond aux critères de recherche.'}
               icon={<Calendar size={30} />}
             />
           ) : (

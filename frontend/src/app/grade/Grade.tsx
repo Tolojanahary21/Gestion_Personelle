@@ -50,89 +50,6 @@ export interface GradeFormData {
    STORAGE
    ========================================================= */
 
-const GRADES_STORAGE_KEY = 'sgpnrh_grades'
-
-const isBrowser = () => typeof window !== 'undefined'
-
-/* =========================================================
-   DONNÉES DE DÉMONSTRATION
-   ========================================================= */
-
-const defaultGrades: Grade[] = [
-  {
-    id: 'grade-001',
-    code: 'CV',
-    libelle: 'Capitaine de vaisseau',
-    abreviation: 'CV',
-    categorie: 'Officier supérieur',
-    rang: 1,
-    description: "Grade d'officier supérieur, commandant de bâtiment ou d'unité majeure.",
-  },
-  {
-    id: 'grade-002',
-    code: 'CF',
-    libelle: 'Capitaine de frégate',
-    abreviation: 'CF',
-    categorie: 'Officier supérieur',
-    rang: 2,
-    description: "Grade d'officier supérieur, second de bâtiment ou chef de service.",
-  },
-  {
-    id: 'grade-003',
-    code: 'LTN',
-    libelle: 'Lieutenant',
-    abreviation: 'Ltn',
-    categorie: 'Officier subalterne',
-    rang: 5,
-    description: 'Officier subalterne, chef de section ou de quart.',
-  },
-  {
-    id: 'grade-004',
-    code: 'EV1',
-    libelle: 'Enseigne de vaisseau de 1ère classe',
-    abreviation: 'EV1',
-    categorie: 'Officier subalterne',
-    rang: 6,
-    description: 'Officier subalterne débutant sa carrière.',
-  },
-  {
-    id: 'grade-005',
-    code: 'MAJ',
-    libelle: 'Major',
-    abreviation: 'Maj',
-    categorie: 'Officier marinier',
-    rang: 7,
-    description: 'Grade sommital des officiers mariniers.',
-  },
-  {
-    id: 'grade-006',
-    code: 'MTR',
-    libelle: 'Maître',
-    abreviation: 'Mtr',
-    categorie: 'Officier marinier',
-    rang: 9,
-    description: 'Officier marinier, encadrement de proximité.',
-  },
-  {
-    id: 'grade-007',
-    code: 'QM1',
-    libelle: 'Quartier-maître de 1ère classe',
-    abreviation: 'QM1',
-    categorie: 'Quartier-maître',
-    rang: 11,
-    description: 'Sous-officier subalterne.',
-  },
-  {
-    id: 'grade-008',
-    code: 'MAT',
-    libelle: 'Matelot',
-    abreviation: 'Mat',
-    categorie: 'Matelot',
-    rang: 13,
-    description: "Grade d'entrée dans la marine.",
-  },
-]
-
 const categories: GradeCategorie[] = [
   'Officier supérieur',
   'Officier subalterne',
@@ -155,37 +72,8 @@ const emptyForm: GradeFormData = {
 }
 
 /* =========================================================
-   OUTILS STORAGE
-   ========================================================= */
-
-export function getGradesFromStorage(): Grade[] {
-  if (!isBrowser()) return defaultGrades
-
-  try {
-    const raw = localStorage.getItem(GRADES_STORAGE_KEY)
-    if (!raw) return defaultGrades
-
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return defaultGrades
-
-    return parsed as Grade[]
-  } catch {
-    return defaultGrades
-  }
-}
-
-function saveGradesToStorage(grades: Grade[]) {
-  if (!isBrowser()) return
-  localStorage.setItem(GRADES_STORAGE_KEY, JSON.stringify(grades))
-}
-
-/* =========================================================
    UTILITAIRES
    ========================================================= */
-
-function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-}
 
 const categoryColors: Record<GradeCategorie, string> = {
   'Officier supérieur': 'border-violet-200 bg-violet-50 text-violet-700',
